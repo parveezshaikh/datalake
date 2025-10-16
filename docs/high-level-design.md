@@ -16,6 +16,7 @@ Build a cloud-ready Data Hub that ingests, transforms, and distributes data acro
 - **API & Orchestration Layer**
   - Pipeline Registry Service: CRUD APIs over XML pipeline definitions, validation, and versioning.
   - Job Orchestrator: Executes job pipelines, resolves dependencies, schedules runs (integrated with Airflow DAGs).
+  - Self-Service Portal: Guided wizard (FastAPI backend with UI) that validates inputs, scaffolds XML, and commits changes through approval workflows.
 - **Ingestion Layer**
   - **CSV Connector**: Streams files from SFTP/object storage to landing zones; schema validation using PySpark `DataFrameReader`.
   - **Database Connector**: Incremental extraction through JDBC readers or CDC integration.
@@ -51,7 +52,14 @@ Each data pipeline is defined in XML, stored per application and layer. Schema h
     <csv id="customer_csv" path="s3://landing/customer/*.csv" header="true" delimiter="," inferSchema="false">
       <schemaRef>schemas/customer_staging.avsc</schemaRef>
     </csv>
-    <database id="customer_db" jdbcUrl="jdbc:mysql://host/db" table="customer" fetchSize="10000"/>
+    <database id="customer_db" jdbcUrl="jdbc:mysql://host/db" fetchSize="10000">
+      <sql><![CDATA[
+        SELECT customer_id, status, updated_at
+        FROM customer
+        WHERE updated_at >= :runDate
+      ]]></sql>
+      <!-- Omit <sql> and provide <table name="..."/> for simple full-table loads -->
+    </database>
   </sources>
   <transformations>
     <deduplicate source="customer_csv" keys="customer_id" keep="latest"/>
@@ -71,6 +79,7 @@ Each data pipeline is defined in XML, stored per application and layer. Schema h
 Key design considerations:
 - **XSD Validation**: XSD enforces transformation ordering rules and optional/required attributes.
 - **Reusable References**: `<schemaRef>` and `<lookup>` reference metadata catalog entries.
+- **Flexible Database Reads**: `<database>` sources may specify inline `<sql>` (with parameter binding) or fall back to `<table name="..."/>` for full-table ingestion.
 - **Extensibility**: New transformation nodes can be plugged in without altering orchestrator code (Strategy pattern).
 
 ### 4.2 Job Pipeline Definition
@@ -108,11 +117,26 @@ datalake/
 ├── services/
 │   ├── orchestrator/             # FastAPI orchestration service
 │   ├── dashboard/                # Flask UI for operational metrics
+│   ├── self_service/             # Portal backend and UI assets for guided pipeline creation
 │   └── workers/                  # PySpark job launcher and utility binaries
 ├── libs/
 │   ├── pipeline_core/            # Base Spark pipeline template, step registry, XML parser
 │   ├── connectors/               # CSV, JDBC, and future source/sink connectors
-│   └── transformations/          # Dedup, sort, join, lookup, merge, rollup, masking strategies
+│   └── transformations/
+│       ├── deduplicate/
+│       │   └── deduplicate.py
+│       ├── sort/
+│       │   └── sort.py
+│       ├── join/
+│       │   └── join.py
+│       ├── lookup/
+│       │   └── lookup.py
+│       ├── merge/
+│       │   └── merge.py
+│       ├── aggregate/
+│       │   └── aggregate.py
+│       └── mask/
+│           └── mask.py
 ├── config/
 │   ├── common/
 │   │   ├── schemas/              # Shared schema definitions (Avro, JSON schema)
@@ -132,8 +156,11 @@ datalake/
 │               ├── jobs/
 │               └── resources/
 ├── data/
-│   ├── landing/                  # Raw file drop (limited access; staging only)
-│   └── temp/                     # Transient working space (auto-clean)
+│   └── applications/
+│       └── <appName>/
+│           ├── staging/          # Source ingests for the app (raw tables/files)
+│           ├── standardization/  # Refined, standardized datasets
+│           └── service/          # Published outputs ready for distribution
 ├── scripts/                      # CLI utilities (config validation, job triggers)
 ├── docs/
 │   └── high-level-design.md
@@ -145,6 +172,7 @@ datalake/
 **Configuration Segregation**
 - Application-specific directories encapsulate input/output/pipeline configuration per app.
 - Layer subfolders enforce lifecycle separation: staging (ingestion), standardization (transform), service (exports).
+- Data lake outputs persist under `data/applications/<appName>/...`, keeping operational artifacts alongside their owning configuration for lifecycle management.
 - Git branching strategy and tagging manage configuration versions for deployments.
 
 ## 6. Scalability & Performance Strategies
@@ -181,7 +209,5 @@ datalake/
 
 ## 10. Future Enhancements
 - Real-time ingestion module via Spark Structured Streaming and Kafka.
-- Self-service portal for business users to request new pipelines using guided wizards.
 - Machine-learning powered anomaly detection on pipeline metrics for proactive alerting.
 - Data quality rules engine integrated with transformations (e.g., Great Expectations).
-

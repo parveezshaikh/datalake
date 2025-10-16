@@ -1,0 +1,33 @@
+Refer the high-level-design.md file, following are the questions I have 
+	refering to XML Pipeline Definition section	
+	Q1. The structure propose 3 stages - a) reading of all sources b) performing all transformations c) creating output
+		I presume in each of the stages the execution is based on the sequence in how the items are defined
+		Example 
+		<sources>
+			<csv id="customer_csv" path="s3://landing/customer/*.csv" header="true" delimiter="," inferSchema="false">
+					<schemaRef>schemas/customer_staging.avsc</schemaRef>
+			</csv>
+			<database id="customer_db" jdbcUrl="jdbc:mysql://host/db" table="customer" fetchSize="10000"/>
+		</sources>
+		this will first load the csv and then load the database table
+		
+		<transformations>
+			<deduplicate source="customer_csv" keys="customer_id" keep="latest"/>
+			<sort source="customer_csv" orderBy="customer_id"/>
+		</transformations>
+		this will first perform deduplicate and then sort
+		
+		the same in case of <targets> </targets>
+	Q2. The structure should be able to handle scenario where no transformation is required and it is a straight through pass. Can transformation stage be blank.
+	Q3. Will reading all source together lead to huge memory surge and would JIT load be better design approach
+	Q4. The <database> should it support SQL instead of table name. Will that be better then doing SELECT * from table
+
+
+Following are the feedback I have on Repository & Folder Structure section
+
+1) the sub folder structure under data should follow the same hierarchy as applications. so data/applications/<appName>/staging & standarization & service. The actual files will be created in these last 3 folders.
+2) for each transformation create it own folder and python file under transformations folder
+
+In the high level design include the design to include point you suggested in Future Enhancements 
+1. Self-service portal for business users to request new pipelines using guided wizards.
+

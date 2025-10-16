@@ -1,0 +1,63 @@
+Prompt/Input - 001: 
+Refer the high-level-design.md file, following are the questions I have 
+	refering to XML Pipeline Definition section	
+	Q1. The structure propose 3 stages - a) reading of all sources b) performing all transformations c) creating output
+		I presume in each of the stages the execution is based on the sequence in how the items are defined
+		Example 
+		<sources>
+			<csv id="customer_csv" path="s3://landing/customer/*.csv" header="true" delimiter="," inferSchema="false">
+					<schemaRef>schemas/customer_staging.avsc</schemaRef>
+			</csv>
+			<database id="customer_db" jdbcUrl="jdbc:mysql://host/db" table="customer" fetchSize="10000"/>
+		</sources>
+		this will first load the csv and then load the database table
+		
+		<transformations>
+			<deduplicate source="customer_csv" keys="customer_id" keep="latest"/>
+			<sort source="customer_csv" orderBy="customer_id"/>
+		</transformations>
+		this will first perform deduplicate and then sort
+		
+		the same in case of <targets> </targets>
+	Q2. The structure should be able to handle scenario where no transformation is required and it is a straight through pass. Can transformation stage be blank.
+	Q3. Will reading all source together lead to huge memory surge and would JIT load be better design approach
+	Q4. The <database> should it support SQL instead of table name. Will that be better then doing SELECT * from table
+
+
+Prompt/Output - 001:
+
+Q1 – Execution order: The XML lists sources, transforms, and targets declaratively; the orchestrator compiles that into a DAG so it can optimise loads (e.g., JIT or parallel) rather than executing strictly top-to-bottom. For simple cases the default run order follows the listing, but dependencies (like a source named in a transform) really drive sequencing—no change needed, just be aware the engine controls the actual evaluation (docs/high-level-design.md:44).
+Q2 – No-transform pipelines: Yes, support straight-through passes by allowing <transformations/> to be empty or omit the block entirely. The schema just needs to treat the transformations element as optional so extract-only or publish-only jobs are valid (docs/high-level-design.md:56).
+Q3 – Memory considerations: Spark loads data lazily; even if multiple sources are declared, the engine can stream or batch them as needed. Add a loadPolicy attribute (e.g., eager vs onDemand) or source-level partition filters so large tables are fetched only when referenced, avoiding memory spikes (docs/high-level-design.md:50).
+Q4 – Database reads: Prefer letting pipelines provide SQL; introduce an optional <sql><![CDATA[...]]></sql> child or queryRef so you’re not forced into SELECT *. Fall back to table when SQL isn’t supplied; this keeps flexibility for projections, filters, joins, and CDC views (docs/high-level-design.md:54).
+
+
+Prompt/Input - 002:
+
+Can you please change the design document as per the response to Q4.
+
+
+Prompt/Output - 002:
+
+Updated the database-source example to show inline SQL support and documented the table-vs-SQL option so pipelines can project/filter without defaulting to SELECT * (docs/high-level-design.md:54-82).
+
+
+
+Prompt/Input - 003:
+Refer the high-level-design.md file,Following are the feedback I have on Repository & Folder Structure section
+
+1) the sub folder structure under data should follow the same hierarchy as applications. so data/applications/<appName>/staging & standarization & service. The actual files will be created in these last 3 folders.
+2) for each transformation create it own folder and python file under transformations folder
+
+In the high level design include the design to include point you suggested in Future Enhancements 
+1. Self-service portal for business users to request new pipelines using guided wizards.
+
+Prompt/Output - 003:
+Expanded the API & orchestration layer to include a self-service portal that validates inputs, scaffolds XML, and routes approvals (docs/high-level-design.md:16-20) and added a corresponding services/self_service/ component in the repo layout (docs/high-level-design.md:121-138).
+Broke out each transformation into its own subpackage with dedicated Python module under libs/transformations/ to match the requested structure (docs/high-level-design.md:121-138).
+Realigned the data directory so application artifacts land under data/applications/<appName>/staging|standardization|service and noted the governance benefits in the configuration guidance (docs/high-level-design.md:157-175).
+Removed the portal from “Future Enhancements,” keeping the list focused on longer-term ideas now that the portal is part of the core design (docs/high-level-design.md:209-213).
+Next steps:
+
+Review the new portal concept with UX/governance stakeholders to shape the approval workflow.
+Adjust implementation backlogs or tickets to reflect the refined folder structure and transformation packaging.
