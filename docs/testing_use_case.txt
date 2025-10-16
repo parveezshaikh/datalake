@@ -1,8 +1,10 @@
 Prompt:
 1) You are a software tester, who has to identify key features to be tested based on the document and list out all testing scenarios.  
-2) Can you create the test cases to test all possible MSG-GEN-01 scenario including boundry conditions, edge case, happy path, negative scenrios, regression, volume scenario, network failure, concurrency
-3) Generate synthetic data for couple of  such scenario.
+2) Can you create the test cases to test all possible MSG-GEN-01 scenario including boundry conditions, edge case, happy path, negative scenrios, regression, volume/load scenario, network failure, concurrency, infra, privacy, security and vulunarability
+3) Generate synthetic data for all these scenarios.
 4) document all the prompts and output into word document "test_cases"
+5) Create the python code to test each test case, withthe test data provided using the synthetic data create in step #3. 
+6) Write the output of the test automation in excel file in "result" folder 
 
 Prompt/Output:
 Testing Focus
