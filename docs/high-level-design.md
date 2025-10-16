@@ -1,4 +1,4 @@
-# Data Hub Application – High-Level Design
+# Data Lake Application – High-Level Design
 
 ## 1. Purpose and Scope
 Build a cloud-ready Data Hub that ingests, transforms, and distributes data across internal applications at scale. The hub must orchestrate thousands of daily file exchanges, support diverse transformation patterns, and surface operational insights through dashboards.
