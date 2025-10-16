@@ -1,5 +1,8 @@
 Prompt:
-You are a software tester, who has to identify key features to be tested based on the document and list out all testing scenarios.  Also generate synthetic data for couple of  such scenario.
+1) You are a software tester, who has to identify key features to be tested based on the document and list out all testing scenarios.  
+2) Can you create the test cases to test all possible MSG-GEN-01 scenario including boundry conditions, edge case, happy path, negative scenrios, regression, volume scenario, network failure, concurrency
+3) Generate synthetic data for couple of  such scenario.
+4) document all the prompts and output into word document "test_cases"
 
 Prompt/Output:
 Testing Focus
