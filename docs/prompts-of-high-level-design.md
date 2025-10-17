@@ -109,3 +109,38 @@ Additionally, include the previously suggested self-service portal for business 
 **Next Steps**
 - Review the portal concept with UX and governance stakeholders to refine the approval workflow.
 - Update implementation backlogs or tickets to reflect the adjusted folder structure and transformation packaging.
+
+## Session 004 - Product Processor Architecture Alignment
+**Prompt/Input**  
+Treat the shared architecture diagram as the authoritative functional layout for the Data Lake application and refresh the high-level design and prompt log so that the left-side sources represent product processors feeding the hub.
+
+**Prompt/Output**
+- Wove the product processor catalogue and downstream consumer/reporting zones into the logical architecture narrative and component bullets (docs/high-level-design.md:16-47).
+- Replaced the Mermaid data flow diagram to mirror the product processor → Data Hub → GFTS Genesis / Finance / Risk flow described in the diagram (docs/high-level-design.md:51-96).
+- Updated the flow summary to highlight how product processors publish governed extracts that power consumer and reporting domains under unified observability (docs/high-level-design.md:99-102).
+
+**Next Steps**
+- Share the refreshed architecture view with product processor owners and reporting stakeholders to confirm terminology and integration touchpoints.
+
+## Session 005 - Enterprise-Grade Controls & Observability
+**Prompt/Input**  
+Critique the high-level design to ensure it covers enterprise-grade exception handling, audit logging, and comprehensive operational dashboards suitable for large-scale volumes and complexity.
+
+**Prompt/Output**
+- Introduced explicit exception and remediation services, including quarantine zones and steward workflows, within the logical architecture (docs/high-level-design.md:44-47).
+- Expanded observability narratives and section 7 to capture exception telemetry, operational dashboards, cost/capacity tracking, and runbook-driven alerting (docs/high-level-design.md:48-51, 341-351).
+- Enhanced security/governance coverage with encryption, lineage-aware audit trails, retention policies, and data quality governance; updated repository structure to add remediation services, data-quality libraries, and exception configuration/data zones (docs/high-level-design.md:353-358, 245-313).
+- Documented pipeline-level error policies to route failures into the exception zone with defined SLAs (docs/high-level-design.md:150-162).
+
+**Next Steps**
+- Partner with DataOps and Compliance teams to validate remediation workflows, retention settings, and audit trail requirements before implementation.
+
+## Session 006 - Pipeline Metadata Tag Rename
+**Prompt/Input**  
+Update the pipeline structure so the metadata tag `owner` is renamed to `appname`.
+
+**Prompt/Output**
+- Replaced `<owner>` with `<appName>` in the pipeline metadata example and updated the attribute reference description to reflect its role in lineage and billing scope (docs/high-level-design.md:114-166).
+
+**Next Steps**
+- Notify configuration schema owners so the XSD and validation tooling adopt the new `<appName>` element ahead of release.

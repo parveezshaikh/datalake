@@ -1,11 +1,11 @@
 # Data Lake Application – High-Level Design
 
 ## 1. Purpose and Scope
-Build a cloud-ready Data Hub that ingests, transforms, and distributes data across internal applications at scale. The hub must orchestrate thousands of daily file exchanges, support diverse transformation patterns, and surface operational insights through dashboards.
+Build a cloud-ready Data Lake that ingests, transforms, and distributes data across internal applications at scale. The Lake must orchestrate thousands of daily file exchanges, support diverse transformation patterns, and surface operational insights through dashboards.
 
 ## 2. Technology Stack
 - **Compute & Processing**: Python, PySpark (primary), Pandas (lightweight jobs), NumPy (vectorized utilities)
-- **Service Interfaces**: FastAPI (REST APIs), Flask (dashboard server or embedded UI)
+- **Service Interfaces**: FastAPI (REST APIs), Django/Flask (dashboard server or embedded UI, preferably Django)
 - **Storage**: Hive-backed data lake (metastore + distributed object storage), optional companion object storage for raw files
 - **Containerization**: Docker images per service (ingestion workers, orchestration service, dashboard, utility jobs)
 - **Messaging / Scheduling**: Airflow or managed workflow service for job orchestration; Kafka (optional) for streaming extensions
@@ -13,94 +13,97 @@ Build a cloud-ready Data Hub that ingests, transforms, and distributes data acro
 - **Secrets & Config**: Vault or cloud secrets manager; Git-backed configuration versioning
 
 ## 3. Logical Architecture
+Product processors (Mortgage, CIS, Branded Cards, Deposits, Personal Loan, Other LOBs, FFS, Adjustment, Accounting Engine) send domain extracts to the Data Lake. The Lake centralises ingestion connectors, a PySpark processing framework, shared configuration services, and Hive/object storage data layers before publishing curated data to the consumer platform, Finance and Risk reporting domains.
+
+- **Product Processor Sources**
+  - Each product processor pushes batched files or database extracts through a hardened interface (SFTP landing zones, managed file transfer, API, or CDC feed).
+  - Landing policies enforce schema compatibility, data contracts, and naming conventions so mortgage, cards, deposits, and other lines of business coexist safely in the same Lake.
 - **API & Orchestration Layer**
   - Pipeline Registry Service: CRUD APIs over XML pipeline definitions, validation, and versioning.
+  - Configuration Service: Publishes the approved XML configuration set to connectors and Spark jobs; backs the self-service portal and Git synchronisation.
   - Job Orchestrator: Executes job pipelines, resolves dependencies, schedules runs (integrated with Airflow DAGs).
   - Self-Service Portal: Guided wizard (FastAPI backend with UI) that validates inputs, scaffolds XML, and commits changes through approval workflows.
 - **Ingestion Layer**
   - **CSV Connector**: Streams files from SFTP/object storage to landing zones; schema validation using PySpark `DataFrameReader`.
-  - **Database Connector**: Incremental extraction through JDBC readers or CDC integration.
+  - **Database Connector**: Incremental extraction through JDBC readers or CDC integration, tuned per product processor feed.
 - **Processing Layer (PySpark Cluster)**
   - **Transformation Engine**: Executes pipeline steps (deduplication, sorting, join, lookup, merge, rollup, masking) as reusable PySpark operators.
   - **Template Method Pattern**: Each pipeline inherits the base `SparkPipeline` template that manages session lifecycle, logging, and commits.
   - **Strategy Pattern**: Each transformation step is a strategy, allowing dynamic selection based on XML configuration.
 - **Storage & Data Management**
+  - **Data Store**: Hive-backed data lake and companion object storage hold raw and curated assets with ACID guarantees via table formats (Iceberg/Delta/Hudi).
   - **Staging Layer**: Raw/table-aligned Hive tables mirroring source schema.
   - **Standardization Layer**: Curated tables with cleansed, standardized formats.
   - **Service Layer**: Presentation tables powering downstream extracts or APIs.
   - **Metadata Store**: Hive metastore augmented by MongoDB (or Hive) tables for pipeline/job metadata & run history.
 - **Delivery Layer**
+  - **Consumer Zone**: Batch interfaces and APIs that feed GFTS Genesis with near-real-time snapshots sourced from the Service layer.
+  - **Reporting Zone**: Finance and Risk reporting marts materialised from curated Service-layer views.
   - **Batch Exports**: PySpark writers to CSV, partitioned by business keys; output placed into application-specific service directories.
   - **Services**: FastAPI endpoints for data pulls and on-demand export requests.
+- **Exception & Remediation Services**
+  - **Quarantine Zone**: Automatically diverts schema failures, business-rule violations, and technical rejects into an isolated object store/Hive zone with full payload, validation errors, and correlation IDs.
+  - **Remediation Workbench**: Portal workflows allow data stewards to triage, correct, and replay quarantined records via governed reprocessing APIs.
+  - **Golden Record Guardrails**: Duplicate detection and survivorship policies ensure exception handling does not compromise downstream master datasets.
 - **Observability & Governance**
-  - Unified logging (structured JSON) flowing to ELK.
-  - Metrics collector to Prometheus; Grafana dashboard highlights throughput, success/failure counts, SLA adherence.
+  - Unified logging (structured JSON) flowing to ELK for source-to-service lineage, exception traces, and security events.
+  - Metrics collector to Prometheus; Grafana/Superset dashboards cover throughput, latency percentiles, SLA adherence, exception queues, and capacity trends.
   - Data masking policies enforced via configuration-driven transformations with reversible tokenization where required.
 
 ### 3.1 Data Flow Diagram
 
 ```mermaid
 flowchart LR
-  subgraph Sources
-    A1[CSV / Flat Files]
-    A2[Operational Databases]
-    A3[Streaming / Future Kafka]
+  subgraph ProductProcessors["Product Processors"]
+    PP[Mortgage\nCIS\nBranded Cards\nDeposits\nPersonal Loan\nOther LOBs\nFFS\nAdjustment\nAccounting Engine]
   end
 
-  subgraph Ingestion Layer
-    B1[CSV Connector\nSchema Validation]
-    B2[JDBC / CDC Connector]
+  PP --> I1
+
+  subgraph DataHub["Data Hub"]
+    I1[Ingestion Connectors]
+    FW[PySpark Processing Framework]
+    CF[Configuration Service\n(XML Pipelines)]
+    DS[Data Store\n(Hive/Object Storage)]
   end
 
-  subgraph Processing Layer
-    C1[PySpark Transformation Engine]
-    C2[Reusable Transformation Strategies]
+  FW --> DS
+  CF --> FW
+  I1 --> FW
+  I1 --> DS
+
+  subgraph DataLayers["Data Lake Layers"]
+    L1[Staging]
+    L2[Standardization]
+    L3[Service]
   end
 
-  subgraph Storage Layers
-    D1[Landing & Staging Tables]
-    D2[Standardization Zone]
-    D3[Service Zone]
+  DS --> L1
+  L1 --> L2
+  L2 --> L3
+
+  subgraph Consumer["Consumer"]
+    GEN[GFTS Genesis]
   end
 
-  subgraph Delivery Layer
-    E1[Batch Exports\nCSV / API Feeds]
-    E2[Self-Service Portal\nFastAPI]
+  subgraph Reporting["Reporting"]
+    FIN[Finance]
+    RISK[Risk]
   end
 
-  subgraph Observability & Governance
-    F1[Prometheus Metrics]
-    F2[ELK / OpenSearch Logs]
-    F3[Run Metadata Store]
-  end
+  L3 --> GEN
+  L3 --> FIN
+  L3 --> RISK
 
-  Sources --> B1
-  Sources --> B2
-  B1 --> C1
-  B2 --> C1
-  C1 --> C2
-  C2 --> D1
-  D1 --> D2
-  D2 --> D3
-  D3 --> E1
-  E2 --> B1
-  E2 --> C1
-  E1 -->|Exports & APIs| Consumers[Internal Applications]
-
-  C1 --> F3
-  B1 --> F2
-  B2 --> F2
-  E1 --> F1
-  F1 --> Dashboards[Grafana Dashboards]
-  F2 --> Dashboards
-  F3 --> Dashboards
+  FW --> OBS[Observability & Governance]
+  OBS --> Dashboards[Dashboards & Alerts]
 ```
 
 **Flow Summary**
-- External sources (files, databases, future streaming) pass through dedicated connectors that enforce schema and quality gates before landing in the data lake.
-- The PySpark engine orchestrates transformation strategies, writing curated data across staging, standardization, and service layers.
-- Batch exports, APIs, and the self-service portal distribute service-layer data to consuming applications while feeding operational telemetry.
-- Metrics, logs, and run metadata converge into observability platforms to power dashboards and governance workflows.
+- Product processors (Mortgage, CIS, Branded Cards, Deposits, Personal Loan, Other LOBs, FFS, Adjustment, Accounting Engine) publish governed extracts that land in the ingestion connectors.
+- The Data Lake applies PySpark-driven transformations orchestrated by XML-defined pipelines while the configuration service ensures all jobs use approved metadata.
+- Staging, Standardization, and Service layers persist the refined datasets that supply the GFTS Genesis consumer platform plus Finance and Risk reporting domains.
+- Observability services capture metrics, logs, and lineage across ingestion, processing, and delivery stages to drive dashboards and proactive alerting.
 
 ## 4. Pipeline Configuration Model
 ### 4.1 XML Pipeline Definition
@@ -109,7 +112,7 @@ Each data pipeline is defined in XML, stored per application and layer. Schema h
 ```xml
 <pipeline id="customer_staging_load" version="1.0" layer="staging">
   <metadata>
-    <owner>customer-team</owner>
+    <appName>customer-team</appName>
     <sla>PT2H</sla>
     <schedule>0 * * * *</schedule>
   </metadata>
@@ -149,14 +152,16 @@ Key design considerations:
 - **Reusable References**: `<schemaRef>` on files, databases, and targets reference the schema artifacts housed under application-level `config/.../schemas`.
 - **Flexible Database Reads/Writes**: `<database>` sources may specify inline `<sql>` (with parameter binding) or fall back to `<table name="..."/>` for full-table ingestion. Targets can write to database tables using `mode` semantics consistent with Spark JDBC writers.
 - **Extensibility**: New transformation nodes can be plugged in without altering orchestrator code (Strategy pattern).
+- **Exception Policies**: Pipelines declare `<errorPolicy>` blocks defining reject handling (`quarantine`, `skip`, `halt`, `retry`) and default remediation SLA so the orchestrator can route failed records to the exception zone automatically.
 
 #### Element Attribute Reference
 - `pipeline`
   - `id`: unique string scoped to the application.
   - `version`: semantic version string (`major.minor.patch`).
   - `layer`: `staging | standardization | service`.
+  - `<errorPolicy>`: optional block specifying `onRecordError` (`quarantine | skip`), `onStepError` (`retry | halt`), `quarantineTopic`, and `remediationSla`.
 - `metadata`
-  - `<owner>`: team or application identifier.
+  - `<appName>`: application identifier used for tagging lineage, billing, and rule-scoping.
   - `<sla>`: ISO-8601 duration (`PT2H`, `P1D`).
   - `<schedule>`: cron expression (`minute hour day-of-month month day-of-week`).
 - `csv` (source/target)
@@ -252,11 +257,12 @@ datalake/
 │   ├── orchestrator/             # FastAPI orchestration service
 │   ├── dashboard/                # Flask UI for operational metrics
 │   ├── self_service/             # Portal backend and UI assets for guided pipeline creation
+│   ├── remediation/              # Exception triage APIs, steward workflows, replay automation
 │   └── workers/                  # PySpark job launcher and utility binaries
 ├── libs/
 │   ├── pipeline_core/            # Base Spark pipeline template, step registry, XML parser
 │   ├── connectors/               # CSV, JDBC, and future source/sink connectors
-│   └── transformations/
+│   ├── transformations/
 │       ├── deduplicate/
 │       │   └── deduplicate.py
 │       ├── sort/
@@ -271,6 +277,9 @@ datalake/
 │       │   └── aggregate.py
 │       └── mask/
 │           └── mask.py
+│   └── data_quality/
+│       ├── rules_engine.py       # Reusable validation rules and expectation library adapters
+│       └── quarantine.py         # Helpers for routing bad records to the exception zone
 ├── config/
 │   ├── common/
 │   │   ├── schemas/              # Shared schema definitions (Avro, JSON schema)
@@ -287,17 +296,21 @@ datalake/
 │           │   ├── jobs/
 │           │   ├── schemas/
 │           │   └── resources/
-│           └── service/
+│           ├── service/
 │               ├── pipelines/
 │               ├── jobs/
 │               ├── schemas/
 │               └── resources/
+│           └── exceptions/
+│               ├── rules/        # Data quality and business rule definitions
+│               └── workflows/    # Steward remediation playbooks and escalation configs
 ├── data/
 │   └── applications/
 │       └── <appName>/
 │           ├── staging/          # Source ingests for the app (raw tables/files)
 │           ├── standardization/  # Refined, standardized datasets
-│           └── service/          # Published outputs ready for distribution
+│           ├── service/          # Published outputs ready for distribution
+│           └── exceptions/       # Quarantined records with error context and audit trail
 ├── scripts/                      # CLI utilities (config validation, job triggers)
 ├── docs/
 │   └── high-level-design.md
@@ -310,7 +323,8 @@ datalake/
 - Application-specific directories encapsulate input/output/pipeline configuration per app.
 - Layer subfolders enforce lifecycle separation: staging (ingestion), standardization (transform), service (exports).
 - Each layer houses a dedicated `schemas/` directory so XML definitions can resolve to the correct physical schema artifacts without cross-layer coupling.
-- Data lake outputs persist under `data/applications/<appName>/...`, keeping operational artifacts alongside their owning configuration for lifecycle management.
+- Exceptions configuration stores rule definitions and remediation workflows so operational policies remain versioned with the owning application.
+- Data lake outputs persist under `data/applications/<appName>/...`, keeping operational artifacts alongside their owning configuration for lifecycle management. Quarantined data is stored beside production layers with access controls and retention settings.
 - Git branching strategy and tagging manage configuration versions for deployments.
 
 ## 6. Scalability & Performance Strategies
@@ -320,24 +334,28 @@ datalake/
 - **Vectorized Operations**: Use Pandas/NumPy only for small data or control-plane logic; delegate heavy lifting to Spark.
 - **Asynchronous I/O**: Parallel ingestion from multiple file sources; multi-threaded download/upload using asyncio or Spark parallelism.
 - **Containerized Isolation**: Separate Docker images per service; orchestrate with Kubernetes for horizontal scaling.
+- **Workload Management**: Implement Spark dynamic allocation, YARN/Kubernetes queue quotas, and Airflow pool limits to isolate heavy product processors from latency-sensitive SLA jobs.
+- **Tiered Storage**: Use storage classes aligned with data temperature; compact service-layer tables with OPTIMIZE/VACUUM jobs to sustain interactive performance at scale.
 - **Template & Strategy Patterns**: Ensure new transformations plug in without code duplication; maintain performance-tuned implementations.
 
-## 7. Operational Monitoring & Run History
-- **Run Metadata Store**: Each pipeline run emits start/end timestamps, row counts, success/failure flags, error reasons, SLA status into a `ops.pipeline_runs` Hive table.
-- **Metrics Aggregation**: Airflow DAGs push run summaries to Prometheus (e.g., `pipeline_runs_total`, `pipeline_failures_total`, `pipeline_duration_seconds`).
-- **Dashboard**: Grafana board pulling from Prometheus and Hive (via SQL connector) to show:
-  - Runs per day/week by pipeline and application
-  - Success vs. failure counts with drill-down into error messages
-  - SLA compliance rates
-  - Top failure reasons aggregated by category
-- **Alerting**: SLA breach or repeated failure triggers Slack/email/webhook notifications.
-- **Traceability**: Unique run IDs propagate through logs, metrics, and stored data for lineage tracking.
+## 7. Operational Monitoring, Exception Handling & Run History
+- **Run Metadata Store**: Each pipeline run emits start/end timestamps, row counts, success/failure flags, error reasons, SLA status, cluster utilisation, and cost-estimate tags into a `ops.pipeline_runs` Hive/Iceberg table.
+- **Metrics Aggregation**: Airflow DAGs push run summaries, queue depth, executor utilisation, and checkpoint timings to Prometheus (e.g., `pipeline_runs_total`, `pipeline_failures_total`, `pipeline_duration_seconds`, `spark_executor_cpu_percent`).
+- **Exception Telemetry**: Quarantine events publish to an `ops.quarantine_events` topic/table capturing validation rule IDs, impacted product processor, record counts, and remediation status. Self-service APIs support bulk replay once corrections are approved.
+- **Operational Dashboards**: Grafana and/or Superset boards federate Prometheus metrics, Hive operational tables, and ELK logs to provide:
+  - Pipeline throughput, latency percentiles, SLA adherence, and backlog visualisations.
+  - Exception queues by severity, days outstanding, steward assignment, and reprocessing outcome.
+  - Data quality scorecards summarising rule pass rates, drift indicators, and anomaly trends per product processor.
+  - Cost and capacity heatmaps (compute hours, storage growth, object operations) to forecast scaling needs.
+- **Alerting & Runbooks**: Dynamic thresholds trigger Slack/email/webhook alerts with embedded runbook links. PagerDuty/ITSM integrations auto-create incidents for priority failures.
+- **Traceability & Correlation IDs**: Unique run IDs and record-level correlation hashes flow through logs, metrics, lineage catalog, and quarantined payloads to enable cross-platform troubleshooting.
 
 ## 8. Security, Governance, and Compliance
-- **Data Masking**: Tokenization, hashing, or encryption strategies defined per column in XML; executed as transformations before data leaves secure zones.
-- **Access Control**: Fine-grained permissions per application folder; service accounts use least privilege when interacting with data lake and secrets.
-- **Audit Logging**: All configuration changes logged, versioned, and auditable via Git and metadata tables.
-- **Schema Governance**: Schema registry ensures producers/consumers adhere to contracts; automatic schema drift detection.
+- **Data Masking & Encryption**: Tokenization, hashing, field-level encryption, and deterministic masking strategies defined per column in XML; enforced by Spark transformations and by-at-rest encryption (KMS-managed keys) for raw and curated zones.
+- **Access Control**: Fine-grained ABAC/RBAC across product processors and data layers; service principals use least privilege when interacting with data lake, secrets, and metadata APIs. Integration with enterprise IdP enables SSO and MFA for portal access.
+- **Audit Logging & Lineage**: Immutable audit trail captures every configuration change, portal action, data access, schema update, and remediation replay with user identity, timestamp, and before/after diff. Lineage catalog (e.g., OpenLineage/Marquez) links pipelines, datasets, and downstream consumers.
+- **Compliance & Retention**: Configurable data retention policies manage lifecycle (hot → warm → archive → purge) and legal hold requirements per product processor. Automated retention jobs enforce GDPR/CCPA deletion and produce attestation reports.
+- **Schema Governance & Data Quality**: Schema registry ensures producers/consumers adhere to contracts; automatic schema drift detection triggers quarantine plus steward notifications. Embedded data quality rule packs run during ingestion with policy-based blocking or warning thresholds.
 
 ## 9. Deployment & DevOps
 - **CI/CD**: Automated linting, unit tests, XML schema validation, and integration tests on pull requests.
