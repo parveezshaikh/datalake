@@ -72,3 +72,12 @@ REC-01 Test disaster-recovery/rollback by simulating file upload failure and ver
     "Audit log links correction to original message"
   ]
 }
+
+Additional Prompt:
+7) Create synthetic dataset `cards_com_bal.csv` for MSG-GEN-01 reconciliation with the required schema (dept id, as-of date, balance type, amounts, currencies, system/product identifiers, adjustment and GAAP codes) and store it under a new `data` folder.
+
+Prompt/Output (cards_com_bal.csv):
+- Regenerated 120 deterministic records dated `10/22/2025`, covering all balance types (`P`, `C`, `F`, `A`) and each GAAP/adjustment code combination.
+- Ensured `dept_id` follows the `XXXX999999999` format with unique values, while `source_system_id` (`XX9999`) and six-digit `product_id` entries repeat to mimic multi-feed aggregation.
+- Constrained both `txn_amt` and `base_amt` to ≤ 10,000,000,000.00000; applied Table 2/3 FX multipliers (USD→GBP ×1.2, USD→EUR ×1.5, GBP→EUR ×0.9) with five-decimal rounding for cross-currency rows.
+- Dataset saved at `data/cards_com_bal.csv` for ingestion by the regression harness and downstream reconciliation checks.

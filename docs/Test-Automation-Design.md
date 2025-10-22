@@ -106,3 +106,34 @@ add test case for network failure
 
 **Test Case Added**
 - `MSG-GEN-01-ERR01`: Validates graceful handling of network interruption mid-submit, ensuring no duplicate or orphan records and confirming successful retry after connectivity restoration.
+
+## Session 004 – Cards Balance Test Data
+**Prompt/Input**  
+Generate synthetic test data named `cards_com_bal.csv` with the specified schema (department identifier, valuation date, balance type, transaction/base amounts & currencies, source system, product, adjustment reason, GAAP indicator) and ensure the file is available for automation.
+
+**Response Summary**
+- Regenerated 120 deterministically-seeded records so regression packs have sufficient coverage for pagination, sampling, and aggregation tests.
+- Enforced `txn_amt` and `base_amt` ceilings at 10,000,000,000.00000 while still varying magnitudes and decimal precision for rounding checks.
+- Applied Table 2/3 FX logic: USD→GBP (×1.2), USD→EUR (×1.5), GBP→EUR (×0.9), and 1:1 for same-currency pairs, ensuring referential compliance with finance rules.
+- Retained `as_of_date=10/22/2025` and unique `dept_id` prefixes for traceability; dataset remains available at `data/cards_com_bal.csv`.
+
+**Dataset Schema**
+
+| Column | Type | Population Logic |
+| - | - | - |
+| dept_id | String | Unique key formatted as `XXXX999999999`; prefixes align to functional areas (CARD, FINC, RISK, etc.). |
+| as_of_date | Date | `10/22/2025` (`mm/dd/yyyy`) applied uniformly across the dataset. |
+| balance_typ | String | Enumerates `P`, `C`, `F`, `A` to cover posting, correction, forecast, and adjustment lenses. |
+| txn_amt | decimal(31,5) | Randomized non-zero amounts ≤ 10,000,000,000 with five decimal places (seeded for repeatability). |
+| base_amt | decimal(31,5) | Mirrors `txn_amt` when currencies match; otherwise uses Table 2/3 FX multipliers (USD→GBP ×1.2, USD→EUR ×1.5, GBP→EUR ×0.9) rounded to five decimals and capped at 10,000,000,000. |
+| txn_ccy | String | One of `USD`, `GBP`, `EUR` representing the original transaction currency. |
+| base_ccy | String | One of `USD`, `GBP`, `EUR`; differs from `txn_ccy` for FX coverage scenarios. |
+| source_system_id | String | Alphanumeric IDs like `CB1023` or `DW2045` (pattern `XX9999`), reused to simulate multi-origin feeds. |
+| product_id | String | Six-digit product references reused across records to support aggregation tests. |
+| adjustment_rsn_cd | String | Cycles through `1`, `2`, `3` to validate adjustment code filtering. |
+| gaap_ind | String | Rotates across `1`–`4` to back GAAP-specific processing branches. |
+
+**Usage Notes**
+- Map MSG-GEN-01 regression scripts to rows where `balance_typ=P/C` and `txn_ccy=base_ccy` to assert strict equality checks.
+- Leverage FX rows (where `txn_ccy != base_ccy`) for revaluation scenarios; cross-check base amounts against the specified multipliers to catch configuration drift.
+- Dataset can be refreshed by rerunning the generation script (seeded for determinism) if future test cycles require a new valuation date or updated FX rates.
