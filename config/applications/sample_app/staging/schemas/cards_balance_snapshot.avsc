@@ -1,0 +1,18 @@
+{
+  "type": "record",
+  "name": "CardsBalanceSnapshot",
+  "fields": [
+    {"name": "dept_id", "type": "string"},
+    {"name": "as_of_date", "type": "string"},
+    {"name": "balance_typ", "type": "string"},
+    {"name": "txn_amt", "type": "double"},
+    {"name": "base_amt", "type": "double"},
+    {"name": "txn_ccy", "type": "string"},
+    {"name": "base_ccy", "type": "string"},
+    {"name": "source_system_id", "type": "string"},
+    {"name": "product_id", "type": "string"},
+    {"name": "adjustment_rsn_cd", "type": "string"},
+    {"name": "gaap_ind", "type": "string"},
+    {"name": "currency_name", "type": ["null", "string"], "default": null}
+  ]
+}

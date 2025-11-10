@@ -1,0 +1,8 @@
+<jobPipeline id="cards_balance_job" version="1.0">
+  <pipelines>
+    <pipelineRef id="cards_balance_snapshot" onFailure="halt" />
+  </pipelines>
+  <notifications>
+    <email to="ops@dataplatform.local" on="failure" />
+  </notifications>
+</jobPipeline>

@@ -1,0 +1,22 @@
+<pipeline id="cards_balance_snapshot" version="1.0" layer="staging">
+  <metadata>
+    <appName>sample_app</appName>
+    <sla>PT30M</sla>
+    <schedule>0 * * * *</schedule>
+  </metadata>
+  <sources>
+    <csv id="cards_balances" path="data/cards_com_bal.csv" header="true" delimiter="," inferSchema="true">
+      <schemaRef>config/applications/sample_app/staging/schemas/cards_balance_snapshot.avsc</schemaRef>
+    </csv>
+  </sources>
+  <transformations>
+    <deduplicate source="cards_balances" keys="dept_id" keep="latest" orderBy="as_of_date" />
+    <lookup source="cards_balances" reference="currency_dim" joinColumns="base_ccy" outputFields="currency_name,region" />
+    <mask source="cards_balances" columns="dept_id" strategy="redact" output="masked_cards" />
+    <aggregate source="cards_balances" groupBy="balance_typ" metrics="count:*,sum:base_amt" output="balance_summary" />
+  </transformations>
+  <targets>
+    <hive source="masked_cards" table="staging.cards_balance_snapshot" partitionBy="as_of_date" mode="overwrite" schemaRef="config/applications/sample_app/staging/schemas/cards_balance_snapshot.avsc" />
+    <csv source="balance_summary" path="data/applications/sample_app/service/cards_balance_summary.csv" mode="overwrite" />
+  </targets>
+</pipeline>

@@ -1,0 +1,5 @@
+[
+  {"base_ccy": "USD", "currency_name": "US Dollar", "region": "NA"},
+  {"base_ccy": "GBP", "currency_name": "British Pound", "region": "EMEA"},
+  {"base_ccy": "EUR", "currency_name": "Euro", "region": "EMEA"}
+]
