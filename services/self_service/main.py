@@ -30,7 +30,7 @@ class PipelinePayload(BaseModel):
 
 class NewPipelineRequest(BaseModel):
     app: str = Field(..., description="Application name (applications/<app>)")
-    layer: str = Field(..., regex="^(staging|standardization|service)$", description="Data layer")
+    layer: str = Field(..., pattern="^(staging|standardization|service)$", description="Data layer")
     pipeline_id: str = Field(..., description="Pipeline identifier (filename without .xml)")
 
 
