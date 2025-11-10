@@ -5,7 +5,7 @@ FROM python:3.11-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     APP_HOME=/opt/app \
-    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
+    JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 \
     UVICORN_HOST=0.0.0.0 \
     UVICORN_PORT=8080
 
@@ -13,7 +13,7 @@ WORKDIR ${APP_HOME}
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        openjdk-17-jre-headless \
+        openjdk-21-jre-headless \
         build-essential \
         curl \
         ca-certificates \

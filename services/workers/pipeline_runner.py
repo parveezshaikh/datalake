@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,14 +43,39 @@ class PipelineRunner:
         register_default_transformations(registry)
         pipeline = SparkPipeline(pipeline_config, context, registry)
         pipeline.run()
-        return {
+        result = {
             "pipeline_id": pipeline_config.pipeline_id,
             "metrics": context.metrics.counters,
             "run_id": context.run_id,
         }
+        self._write_run_log(pipeline_config, context, result)
+        return result
 
     def run_by_id(self, *, app: str, layer: str, pipeline_id: str, overrides: Optional[Dict[str, str]] = None) -> Dict[str, object]:
         pipeline_path = self.base_path / "config" / "applications" / app / layer / "pipelines" / f"{pipeline_id}.xml"
         if not pipeline_path.exists():
             raise FileNotFoundError(f"Pipeline definition {pipeline_path} not found")
         return self.run_pipeline(pipeline_path, overrides=overrides)
+
+    def _write_run_log(self, pipeline_config, context, result) -> None:
+        logs_root = (
+            self.base_path
+            / "logs"
+            / "applications"
+            / pipeline_config.metadata.app_name
+            / pipeline_config.layer
+        )
+        logs_root.mkdir(parents=True, exist_ok=True)
+        log_entry = {
+            "run_id": context.run_id,
+            "pipeline_id": pipeline_config.pipeline_id,
+            "app_name": pipeline_config.metadata.app_name,
+            "layer": pipeline_config.layer,
+            "version": pipeline_config.version,
+            "executed_at": datetime.now(timezone.utc).isoformat(),
+            "metrics": result.get("metrics", {}),
+            "config_path": str(pipeline_config.path or ""),
+        }
+        log_path = logs_root / f"{pipeline_config.pipeline_id}_{context.run_id}.log"
+        log_path.write_text(json.dumps(log_entry, indent=2))
+        self.logger.info("Pipeline log recorded at %s", log_path)
