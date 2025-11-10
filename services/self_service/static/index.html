@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Self-Service Pipeline Builder</title>
+    <style>
+      :root {
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #13293d;
+        background: #f6f8fa;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      header {
+        background: #0b6fb8;
+        color: #fff;
+        padding: 1rem 2rem;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+      }
+
+      header h1 {
+        margin: 0;
+        font-size: 1.5rem;
+      }
+
+      main {
+        flex: 1;
+        display: grid;
+        grid-template-columns: 320px 1fr;
+        gap: 1rem;
+        padding: 1rem 2rem 2rem;
+      }
+
+      section {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+        padding: 1rem;
+        overflow: hidden;
+      }
+
+      h2 {
+        margin-top: 0;
+        font-size: 1.1rem;
+        border-bottom: 1px solid #e5e7eb;
+        padding-bottom: 0.5rem;
+      }
+
+      .tree {
+        max-height: calc(100vh - 220px);
+        overflow-y: auto;
+        padding-right: 0.25rem;
+      }
+
+      details {
+        margin-left: 0.5rem;
+      }
+
+      summary {
+        cursor: pointer;
+        font-weight: 600;
+        color: #0f172a;
+        margin: 0.25rem 0;
+      }
+
+      .file-list button {
+        border: none;
+        background: none;
+        text-align: left;
+        width: 100%;
+        padding: 0.25rem 0.75rem;
+        cursor: pointer;
+        color: #1d4ed8;
+      }
+
+      .file-list button:hover,
+      .file-list button.active {
+        background: #dbeafe;
+        border-radius: 6px;
+      }
+
+      textarea {
+        width: 100%;
+        min-height: 360px;
+        border-radius: 8px;
+        border: 1px solid #cbd5f5;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        padding: 0.75rem;
+        resize: vertical;
+        background: #fdfdfd;
+      }
+
+      .editor-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin: 0.75rem 0 1rem;
+      }
+
+      button.primary {
+        background: #0b6fb8;
+        color: #fff;
+        border: none;
+        border-radius: 999px;
+        padding: 0.5rem 1.5rem;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      button.primary:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .status {
+        font-size: 0.9rem;
+        min-height: 1.25rem;
+      }
+
+      .transform-builder {
+        border-top: 1px solid #e5e7eb;
+        padding-top: 1rem;
+      }
+
+      .transform-meta {
+        margin-top: 0.75rem;
+        border: 1px solid #e0e7ff;
+        border-radius: 8px;
+        padding: 0.75rem;
+        background: #f8fafc;
+      }
+
+      .attribute-list {
+        list-style: none;
+        padding: 0;
+        margin: 0.5rem 0 0;
+      }
+
+      .attribute-list li {
+        padding: 0.35rem 0;
+        border-bottom: 1px solid #e2e8f0;
+        font-size: 0.95rem;
+      }
+
+      .attribute-list li:last-child {
+        border-bottom: none;
+      }
+
+      .tag {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 0.1rem 0.5rem;
+        font-size: 0.75rem;
+        margin-left: 0.25rem;
+      }
+
+      .tag.required {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+
+      .tag.optional {
+        background: #e0f2fe;
+        color: #075985;
+      }
+
+      @media (max-width: 960px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+        .tree {
+          max-height: 320px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Data Pipeline Self-Service Portal</h1>
+      <p>Browse, edit, and scaffold XML pipelines with reusable transformations.</p>
+    </header>
+    <main>
+      <section>
+        <h2>Pipeline Files</h2>
+        <div class="tree" id="pipeline-tree"></div>
+      </section>
+      <section>
+        <h2>Pipeline Editor</h2>
+        <div id="active-path" style="font-size:0.9rem;color:#475569;">Select a pipeline to begin.</div>
+        <textarea id="pipeline-editor" placeholder="Pipeline XML" disabled></textarea>
+        <div class="editor-actions">
+          <button class="primary" id="save-button" disabled>Save Changes</button>
+          <span class="status" id="save-status"></span>
+        </div>
+        <div class="transform-builder">
+          <h3>Transformation Builder</h3>
+          <label for="transform-select">Quick reference</label>
+          <select id="transform-select"></select>
+          <div class="transform-meta" id="transform-meta">
+            <p>Select a transformation to view attributes and usage tips.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const state = {
+        tree: [],
+        currentPath: null,
+        transformations: [],
+      };
+
+      async function init() {
+        await Promise.all([loadTree(), loadTransformations()]);
+        document.getElementById("save-button").addEventListener("click", savePipeline);
+        document.getElementById("transform-select").addEventListener("change", (event) => {
+          const meta = state.transformations.find((item) => item.name === event.target.value);
+          renderTransformation(meta);
+        });
+      }
+
+      async function loadTree() {
+        const response = await fetch("/api/pipelines/tree");
+        const data = await response.json();
+        state.tree = data.nodes || [];
+        const container = document.getElementById("pipeline-tree");
+        container.innerHTML = "";
+        state.tree.forEach((node) => container.appendChild(renderNode(node)));
+      }
+
+      function renderNode(node) {
+        if (node.type === "directory") {
+          const details = document.createElement("details");
+          details.open = node.path.split("/").length <= 3;
+          const summary = document.createElement("summary");
+          summary.textContent = node.name;
+          details.appendChild(summary);
+          node.children.forEach((child) => details.appendChild(renderNode(child)));
+          return details;
+        }
+        const wrapper = document.createElement("div");
+        wrapper.className = "file-list";
+        const button = document.createElement("button");
+        button.textContent = node.name;
+        button.addEventListener("click", () => loadPipeline(node.path, button));
+        wrapper.appendChild(button);
+        return wrapper;
+      }
+
+      async function loadPipeline(path, button) {
+        const response = await fetch(`/api/pipeline?path=${encodeURIComponent(path)}`);
+        if (!response.ok) {
+          alert(`Unable to load ${path}`);
+          return;
+        }
+        const payload = await response.json();
+        state.currentPath = payload.path;
+        const editor = document.getElementById("pipeline-editor");
+        editor.value = payload.content;
+        editor.disabled = false;
+        document.getElementById("active-path").textContent = `Editing: ${payload.path}`;
+        document.getElementById("save-button").disabled = false;
+        document.getElementById("save-status").textContent = "";
+        document.querySelectorAll(".file-list button").forEach((el) => el.classList.remove("active"));
+        if (button) {
+          button.classList.add("active");
+        }
+      }
+
+      async function savePipeline() {
+        const editor = document.getElementById("pipeline-editor");
+        if (!state.currentPath || editor.disabled) {
+          return;
+        }
+        const response = await fetch("/api/pipeline", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: state.currentPath, content: editor.value }),
+        });
+        const status = document.getElementById("save-status");
+        if (response.ok) {
+          status.textContent = "Saved ✔";
+          status.style.color = "#16a34a";
+        } else {
+          const error = await response.json();
+          status.textContent = error.detail || "Save failed";
+          status.style.color = "#dc2626";
+        }
+        setTimeout(() => (status.textContent = ""), 5000);
+      }
+
+      async function loadTransformations() {
+        const response = await fetch("/api/transformations");
+        const data = await response.json();
+        state.transformations = data;
+        const select = document.getElementById("transform-select");
+        select.innerHTML = "";
+        select.appendChild(new Option("Choose a transformation", ""));
+        data.forEach((item) => {
+          select.appendChild(new Option(item.name, item.name));
+        });
+      }
+
+      function renderTransformation(meta) {
+        const container = document.getElementById("transform-meta");
+        if (!meta) {
+          container.innerHTML = "<p>Select a transformation to view attributes and usage tips.</p>";
+          return;
+        }
+        const list = document.createElement("ul");
+        list.className = "attribute-list";
+        meta.attributes.forEach((attr) => {
+          const li = document.createElement("li");
+          const tag = document.createElement("span");
+          tag.className = `tag ${attr.required ? "required" : "optional"}`;
+          tag.textContent = attr.required ? "required" : "optional";
+          li.innerHTML = `<strong>${attr.name}</strong>: ${attr.description}`;
+          li.appendChild(tag);
+          list.appendChild(li);
+        });
+        const snippet = document.createElement("pre");
+        snippet.style.background = "#0f172a";
+        snippet.style.color = "#f8fafc";
+        snippet.style.padding = "0.75rem";
+        snippet.style.borderRadius = "8px";
+        snippet.style.overflowX = "auto";
+        const attributes = meta.attributes
+          .map((attr) => `${attr.name}="${attr.required ? attr.name : ""}"`)
+          .join(" \n    ");
+        snippet.textContent = `<${meta.name} \n    ${attributes} \n/>`;
+        container.innerHTML = `<p>${meta.description}</p>`;
+        container.appendChild(list);
+        container.appendChild(snippet);
+      }
+
+      init();
+    </script>
+  </body>
+</html>

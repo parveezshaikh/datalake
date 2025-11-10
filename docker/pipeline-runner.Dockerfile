@@ -38,9 +38,10 @@ RUN pip install --no-cache-dir --upgrade pip \
         pandas>=2.2.0 \
         numpy>=1.26.0 \
         prometheus-client>=0.19.0 \
-        requests>=2.31.0
+        requests>=2.31.0 \
+        aiofiles>=23.2.0
 
 EXPOSE ${UVICORN_PORT}
 
-ENTRYPOINT ["uvicorn", "services.orchestrator.main:app"]
+ENTRYPOINT ["uvicorn", "services.self_service.main:app"]
 CMD ["--host", "0.0.0.0", "--port", "8080"]
