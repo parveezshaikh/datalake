@@ -33,7 +33,7 @@
       main {
         flex: 1;
         display: grid;
-        grid-template-columns: 320px 1fr;
+        grid-template-columns: 340px 1fr;
         gap: 1rem;
         padding: 1rem 2rem 2rem;
       }
@@ -53,8 +53,13 @@
         padding-bottom: 0.5rem;
       }
 
+      h3 {
+        margin: 0.5rem 0;
+        font-size: 1rem;
+      }
+
       .tree {
-        max-height: calc(100vh - 220px);
+        max-height: calc(100vh - 320px);
         overflow-y: auto;
         padding-right: 0.25rem;
       }
@@ -86,15 +91,44 @@
         border-radius: 6px;
       }
 
+      form label {
+        display: flex;
+        flex-direction: column;
+        font-size: 0.85rem;
+        color: #475569;
+      }
+
+      input,
+      select,
       textarea {
-        width: 100%;
-        min-height: 360px;
         border-radius: 8px;
         border: 1px solid #cbd5f5;
+        padding: 0.5rem;
+        font-size: 0.95rem;
+        font-family: inherit;
+      }
+
+      textarea {
+        width: 100%;
+        min-height: 320px;
         font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-        padding: 0.75rem;
         resize: vertical;
         background: #fdfdfd;
+      }
+
+      .new-pipeline {
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 0.75rem;
+        margin-bottom: 1rem;
+        background: #f8fafc;
+      }
+
+      .form-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
       }
 
       .editor-actions {
@@ -102,11 +136,11 @@
         align-items: center;
         gap: 0.75rem;
         margin: 0.75rem 0 1rem;
+        flex-wrap: wrap;
       }
 
-      button.primary {
-        background: #0b6fb8;
-        color: #fff;
+      button.primary,
+      button.secondary {
         border: none;
         border-radius: 999px;
         padding: 0.5rem 1.5rem;
@@ -114,19 +148,31 @@
         cursor: pointer;
       }
 
-      button.primary:disabled {
+      button.primary {
+        background: #0b6fb8;
+        color: #fff;
+      }
+
+      button.secondary {
+        background: #e0e7ff;
+        color: #1d4ed8;
+      }
+
+      button.primary:disabled,
+      button.secondary:disabled {
         opacity: 0.5;
         cursor: not-allowed;
       }
 
       .status {
-        font-size: 0.9rem;
+        font-size: 0.85rem;
         min-height: 1.25rem;
       }
 
       .transform-builder {
         border-top: 1px solid #e5e7eb;
         padding-top: 1rem;
+        margin-top: 1rem;
       }
 
       .transform-meta {
@@ -171,6 +217,32 @@
         color: #075985;
       }
 
+      .log-viewer {
+        border-top: 1px solid #e5e7eb;
+        margin-top: 1.5rem;
+        padding-top: 1rem;
+      }
+
+      .log-viewer select {
+        width: 100%;
+        margin: 0.5rem 0;
+      }
+
+      .log-output {
+        background: #0f172a;
+        color: #f8fafc;
+        padding: 0.75rem;
+        border-radius: 8px;
+        min-height: 160px;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      }
+
+      .muted {
+        color: #94a3b8;
+      }
+
       @media (max-width: 960px) {
         main {
           grid-template-columns: 1fr;
@@ -184,20 +256,44 @@
   <body>
     <header>
       <h1>Data Pipeline Self-Service Portal</h1>
-      <p>Browse, edit, and scaffold XML pipelines with reusable transformations.</p>
+      <p>Browse, create, edit, and validate XML pipelines with reusable transformations.</p>
     </header>
     <main>
       <section>
         <h2>Pipeline Files</h2>
+        <div class="new-pipeline">
+          <h3>Create Pipeline</h3>
+          <form id="new-pipeline-form">
+            <div class="form-grid">
+              <label>Application
+                <input type="text" id="new-app" placeholder="sample_app" required />
+              </label>
+              <label>Layer
+                <select id="new-layer" required>
+                  <option value="staging">staging</option>
+                  <option value="standardization">standardization</option>
+                  <option value="service">service</option>
+                </select>
+              </label>
+              <label>Pipeline ID
+                <input type="text" id="new-pipeline-id" placeholder="my_pipeline" required />
+              </label>
+            </div>
+            <button class="secondary" type="submit">Create Pipeline</button>
+            <div class="status" id="create-status"></div>
+          </form>
+        </div>
         <div class="tree" id="pipeline-tree"></div>
       </section>
       <section>
         <h2>Pipeline Editor</h2>
-        <div id="active-path" style="font-size:0.9rem;color:#475569;">Select a pipeline to begin.</div>
+        <div id="active-path" class="muted">Select or create a pipeline to begin.</div>
         <textarea id="pipeline-editor" placeholder="Pipeline XML" disabled></textarea>
         <div class="editor-actions">
           <button class="primary" id="save-button" disabled>Save Changes</button>
+          <button class="secondary" id="run-button" disabled>Run/Test Pipeline</button>
           <span class="status" id="save-status"></span>
+          <span class="status" id="run-status"></span>
         </div>
         <div class="transform-builder">
           <h3>Transformation Builder</h3>
@@ -207,6 +303,14 @@
             <p>Select a transformation to view attributes and usage tips.</p>
           </div>
         </div>
+        <div class="log-viewer">
+          <h3>Execution Logs</h3>
+          <label for="log-select">Past runs</label>
+          <select id="log-select" disabled>
+            <option value="">No runs yet</option>
+          </select>
+          <pre id="log-output" class="log-output">Run a pipeline to view detailed logs.</pre>
+        </div>
       </section>
     </main>
 
@@ -215,14 +319,25 @@
         tree: [],
         currentPath: null,
         transformations: [],
+        logs: [],
       };
 
       async function init() {
         await Promise.all([loadTree(), loadTransformations()]);
         document.getElementById("save-button").addEventListener("click", savePipeline);
+        document.getElementById("run-button").addEventListener("click", runPipeline);
+        document.getElementById("new-pipeline-form").addEventListener("submit", createPipeline);
         document.getElementById("transform-select").addEventListener("change", (event) => {
           const meta = state.transformations.find((item) => item.name === event.target.value);
           renderTransformation(meta);
+        });
+        document.getElementById("log-select").addEventListener("change", (event) => {
+          const runId = event.target.value;
+          if (!runId) {
+            renderLogContent(null);
+            return;
+          }
+          loadLog(runId);
         });
       }
 
@@ -267,11 +382,14 @@
         editor.disabled = false;
         document.getElementById("active-path").textContent = `Editing: ${payload.path}`;
         document.getElementById("save-button").disabled = false;
+        document.getElementById("run-button").disabled = false;
         document.getElementById("save-status").textContent = "";
+        document.getElementById("run-status").textContent = "";
         document.querySelectorAll(".file-list button").forEach((el) => el.classList.remove("active"));
         if (button) {
           button.classList.add("active");
         }
+        await loadLogsForCurrentPipeline();
       }
 
       async function savePipeline() {
@@ -294,6 +412,124 @@
           status.style.color = "#dc2626";
         }
         setTimeout(() => (status.textContent = ""), 5000);
+      }
+
+      async function createPipeline(event) {
+        event.preventDefault();
+        const app = document.getElementById("new-app").value.trim();
+        const layer = document.getElementById("new-layer").value;
+        const pipelineId = document.getElementById("new-pipeline-id").value.trim();
+        const status = document.getElementById("create-status");
+        if (!app || !pipelineId) {
+          status.textContent = "App and pipeline id are required";
+          status.style.color = "#dc2626";
+          return;
+        }
+        status.textContent = "Creating...";
+        status.style.color = "#475569";
+        const response = await fetch("/api/pipeline/new", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ app, layer, pipeline_id: pipelineId }),
+        });
+        if (!response.ok) {
+          const error = await response.json();
+          status.textContent = error.detail || "Create failed";
+          status.style.color = "#dc2626";
+          return;
+        }
+        const payload = await response.json();
+        status.textContent = "Pipeline created";
+        status.style.color = "#16a34a";
+        await loadTree();
+        await loadPipeline(payload.path);
+        document.getElementById("new-pipeline-form").reset();
+        document.getElementById("new-layer").value = layer;
+        setTimeout(() => (status.textContent = ""), 4000);
+      }
+
+      async function runPipeline() {
+        if (!state.currentPath) {
+          return;
+        }
+        const runButton = document.getElementById("run-button");
+        const runStatus = document.getElementById("run-status");
+        runButton.disabled = true;
+        runStatus.textContent = "Running...";
+        runStatus.style.color = "#475569";
+        const response = await fetch("/api/pipeline/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: state.currentPath, parameters: {} }),
+        });
+        if (response.ok) {
+          const payload = await response.json();
+          runStatus.textContent = `Completed run ${payload.run_id}`;
+          runStatus.style.color = "#16a34a";
+          if (payload.log) {
+            renderLogContent(payload.log);
+          }
+          await loadLogsForCurrentPipeline();
+        } else {
+          const error = await response.json();
+          runStatus.textContent = error.detail || "Run failed";
+          runStatus.style.color = "#dc2626";
+        }
+        runButton.disabled = false;
+        setTimeout(() => (runStatus.textContent = ""), 6000);
+      }
+
+      async function loadLogsForCurrentPipeline() {
+        if (!state.currentPath) {
+          renderLogOptions([]);
+          renderLogContent(null);
+          return;
+        }
+        const response = await fetch(`/api/pipeline/logs?path=${encodeURIComponent(state.currentPath)}&limit=10`);
+        if (!response.ok) {
+          renderLogOptions([]);
+          renderLogContent(null);
+          return;
+        }
+        const data = await response.json();
+        state.logs = data.logs || [];
+        renderLogOptions(state.logs);
+      }
+
+      function renderLogOptions(logs) {
+        const select = document.getElementById("log-select");
+        select.innerHTML = "";
+        select.appendChild(new Option(logs.length ? "Select a run" : "No runs yet", ""));
+        logs.forEach((entry) => {
+          const label = `${entry.run_id} (${entry.executed_at ? new Date(entry.executed_at).toLocaleString() : "time n/a"})`;
+          select.appendChild(new Option(label, entry.run_id));
+        });
+        select.disabled = logs.length === 0;
+        if (logs.length === 0) {
+          renderLogContent(null);
+        }
+      }
+
+      async function loadLog(runId) {
+        if (!state.currentPath || !runId) {
+          return;
+        }
+        const response = await fetch(`/api/pipeline/log?path=${encodeURIComponent(state.currentPath)}&run_id=${encodeURIComponent(runId)}`);
+        if (!response.ok) {
+          renderLogContent({ error: "Unable to load log" });
+          return;
+        }
+        const data = await response.json();
+        renderLogContent(data.log);
+      }
+
+      function renderLogContent(log) {
+        const output = document.getElementById("log-output");
+        if (!log) {
+          output.textContent = "Run a pipeline or select a run to view logs.";
+          return;
+        }
+        output.textContent = JSON.stringify(log, null, 2);
       }
 
       async function loadTransformations() {
