@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Optional
 
+from libs.logging_utils import configure_logging, log_exception
 from libs.pipeline_core import (
     PipelineContext,
     SparkPipeline,
@@ -13,6 +14,8 @@ from libs.pipeline_core import (
     load_pipeline_config,
 )
 from libs.transformations import register_default_transformations
+
+configure_logging()
 
 
 class PipelineRunner:
@@ -37,24 +40,30 @@ class PipelineRunner:
         return context
 
     def run_pipeline(self, pipeline_path: Path, *, overrides: Optional[Dict[str, str]] = None) -> Dict[str, object]:
-        pipeline_config = load_pipeline_config(pipeline_path)
-        context = self._build_context(pipeline_config, overrides=overrides)
-        registry = StepRegistry()
-        register_default_transformations(registry)
-        pipeline = SparkPipeline(pipeline_config, context, registry)
-        pipeline.run()
-        result = {
-            "pipeline_id": pipeline_config.pipeline_id,
-            "metrics": context.metrics.counters,
-            "run_id": context.run_id,
-        }
-        self._write_run_log(pipeline_config, context, result)
-        return result
+        try:
+            pipeline_config = load_pipeline_config(pipeline_path)
+            context = self._build_context(pipeline_config, overrides=overrides)
+            registry = StepRegistry()
+            register_default_transformations(registry)
+            pipeline = SparkPipeline(pipeline_config, context, registry)
+            pipeline.run()
+            result = {
+                "pipeline_id": pipeline_config.pipeline_id,
+                "metrics": context.metrics.counters,
+                "run_id": context.run_id,
+            }
+            self._write_run_log(pipeline_config, context, result)
+            return result
+        except Exception as exc:
+            log_exception(self.logger, f"Pipeline execution failed for {pipeline_path}", exc)
+            raise
 
     def run_by_id(self, *, app: str, layer: str, pipeline_id: str, overrides: Optional[Dict[str, str]] = None) -> Dict[str, object]:
         pipeline_path = self.base_path / "config" / "applications" / app / layer / "pipelines" / f"{pipeline_id}.xml"
         if not pipeline_path.exists():
-            raise FileNotFoundError(f"Pipeline definition {pipeline_path} not found")
+            error = FileNotFoundError(f"Pipeline definition {pipeline_path} not found")
+            log_exception(self.logger, "Pipeline lookup failed", error)
+            raise error
         return self.run_pipeline(pipeline_path, overrides=overrides)
 
     def _write_run_log(self, pipeline_config, context, result) -> None:

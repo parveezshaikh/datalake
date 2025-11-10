@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import logging
+import xml.etree.ElementTree as ET
+from glob import glob
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -9,14 +12,20 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from libs.logging_utils import configure_logging, log_exception
 from services.workers.pipeline_runner import PipelineRunner
 
 BASE_PATH = Path(__file__).resolve().parents[2]
 CONFIG_ROOT = (BASE_PATH / "config").resolve()
+DATA_ROOT = (BASE_PATH / "data").resolve()
 LOGS_ROOT = (BASE_PATH / "logs").resolve()
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+REMOTE_PREFIXES = ("s3://", "gs://", "abfs://", "adl://", "jdbc:", "http://", "https://")
+
+configure_logging()
 
 app = FastAPI(title="Self-Service Portal", version="0.1.0")
+logger = logging.getLogger("self_service")
 runner = PipelineRunner(base_path=BASE_PATH)
 
 if STATIC_DIR.exists():
@@ -37,6 +46,10 @@ class NewPipelineRequest(BaseModel):
 class PipelineRunPayload(BaseModel):
     path: str = Field(..., description="Pipeline path relative to config root")
     parameters: Dict[str, str] = Field(default_factory=dict, description="Optional override parameters")
+
+
+class PipelineValidatePayload(BaseModel):
+    path: str = Field(..., description="Pipeline path relative to config root")
 
 
 DEFAULT_PIPELINE_TEMPLATE = """<pipeline id="{pipeline_id}" version="1.0" layer="{layer}">
@@ -146,10 +159,14 @@ async def root_page() -> HTMLResponse:
 
 @app.get("/api/pipelines/tree")
 async def list_pipeline_tree() -> dict:
-    return {
-        "root": "config",
-        "nodes": _build_tree(CONFIG_ROOT),
-    }
+    try:
+        return {
+            "root": "config",
+            "nodes": _build_tree(CONFIG_ROOT),
+        }
+    except Exception as exc:
+        log_exception(logger, "Failed to build pipeline tree", exc)
+        raise HTTPException(status_code=500, detail="Unable to read pipeline tree") from exc
 
 
 @app.get("/api/pipeline")
@@ -157,32 +174,58 @@ async def get_pipeline(path: str = Query(..., description="Path relative to conf
     target = _resolve_config_path(path)
     if not target.exists() or not target.is_file():
         raise HTTPException(status_code=404, detail=f"Pipeline {path} not found")
-    return {"path": path, "content": target.read_text()}
+    try:
+        return {"path": path, "content": target.read_text()}
+    except OSError as exc:
+        log_exception(logger, "Unable to read pipeline file", exc)
+        raise HTTPException(status_code=500, detail="Unable to read pipeline file") from exc
 
 
 @app.put("/api/pipeline")
 async def save_pipeline(payload: PipelinePayload) -> dict:
-    target = _resolve_config_path(payload.path)
-    if not target.parent.exists():
-        target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(payload.content)
-    return {"status": "saved", "path": payload.path}
+    try:
+        target = _resolve_config_path(payload.path)
+        if not target.parent.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(payload.content)
+        logger.info("Saved pipeline %s", payload.path)
+        return {"status": "saved", "path": payload.path}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log_exception(logger, "Failed to save pipeline", exc)
+        raise HTTPException(status_code=500, detail="Unable to save pipeline") from exc
+
+
+@app.post("/api/pipeline/validate")
+async def validate_pipeline(payload: PipelineValidatePayload) -> dict:
+    config_path = _resolve_config_path(payload.path)
+    result = _validate_pipeline_file(config_path)
+    logger.info("Validation requested for %s valid=%s", payload.path, result["valid"])
+    return result
 
 
 @app.post("/api/pipeline/new")
 async def create_pipeline(payload: NewPipelineRequest) -> dict:
-    relative_path = f"applications/{payload.app}/{payload.layer}/pipelines/{payload.pipeline_id}.xml"
-    target = _resolve_config_path(relative_path)
-    if target.exists():
-        raise HTTPException(status_code=409, detail="Pipeline already exists")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    template = DEFAULT_PIPELINE_TEMPLATE.format(
-        pipeline_id=payload.pipeline_id,
-        app=payload.app,
-        layer=payload.layer,
-    )
-    target.write_text(template)
-    return {"path": relative_path, "content": template}
+    try:
+        relative_path = f"applications/{payload.app}/{payload.layer}/pipelines/{payload.pipeline_id}.xml"
+        target = _resolve_config_path(relative_path)
+        if target.exists():
+            raise HTTPException(status_code=409, detail="Pipeline already exists")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        template = DEFAULT_PIPELINE_TEMPLATE.format(
+            pipeline_id=payload.pipeline_id,
+            app=payload.app,
+            layer=payload.layer,
+        )
+        target.write_text(template)
+        logger.info("Created pipeline %s", relative_path)
+        return {"path": relative_path, "content": template}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log_exception(logger, "Failed to create pipeline", exc)
+        raise HTTPException(status_code=500, detail="Unable to create pipeline") from exc
 
 
 @app.post("/api/pipeline/run")
@@ -191,14 +234,22 @@ async def run_pipeline(payload: PipelineRunPayload) -> dict:
     identifiers = _extract_pipeline_identifiers(config_path)
     if identifiers is None:
         raise HTTPException(status_code=400, detail="Unsupported pipeline path structure")
+    validation = _validate_pipeline_file(config_path)
+    if not validation["valid"]:
+        raise HTTPException(status_code=400, detail=validation)
     app_name, layer, pipeline_id = identifiers
-    result = runner.run_by_id(app=app_name, layer=layer, pipeline_id=pipeline_id, overrides=payload.parameters or None)
+    try:
+        result = runner.run_by_id(app=app_name, layer=layer, pipeline_id=pipeline_id, overrides=payload.parameters or None)
+    except Exception as exc:
+        log_exception(logger, "Pipeline execution failed via portal", exc)
+        raise HTTPException(status_code=500, detail="Pipeline execution failed") from exc
     log_entry = _read_log(app_name, layer, pipeline_id, result["run_id"])
     return {
         "status": "completed",
         "run_id": result["run_id"],
         "metrics": result["metrics"],
         "log": log_entry,
+        "warnings": validation.get("warnings", []),
     }
 
 
@@ -209,8 +260,12 @@ async def list_pipeline_logs(path: str = Query(..., description="Pipeline path r
     if identifiers is None:
         raise HTTPException(status_code=400, detail="Unsupported pipeline path structure")
     app_name, layer, pipeline_id = identifiers
-    entries = _list_logs(app_name, layer, pipeline_id, limit=limit)
-    return {"logs": entries}
+    try:
+        entries = _list_logs(app_name, layer, pipeline_id, limit=limit)
+        return {"logs": entries}
+    except Exception as exc:
+        log_exception(logger, "Failed to list pipeline logs", exc)
+        raise HTTPException(status_code=500, detail="Unable to list logs") from exc
 
 
 @app.get("/api/pipeline/log")
@@ -223,7 +278,11 @@ async def get_pipeline_log(
     if identifiers is None:
         raise HTTPException(status_code=400, detail="Unsupported pipeline path structure")
     app_name, layer, pipeline_id = identifiers
-    entry = _read_log(app_name, layer, pipeline_id, run_id)
+    try:
+        entry = _read_log(app_name, layer, pipeline_id, run_id)
+    except Exception as exc:
+        log_exception(logger, "Failed to read pipeline log", exc)
+        raise HTTPException(status_code=500, detail="Unable to read log") from exc
     if entry is None:
         raise HTTPException(status_code=404, detail="Log not found")
     return {"log": entry}
@@ -232,6 +291,146 @@ async def get_pipeline_log(
 @app.get("/api/transformations")
 async def list_transformations() -> List[dict]:
     return TRANSFORMATIONS_METADATA
+
+
+def _validate_pipeline_file(config_path: Path) -> dict:
+    errors: List[str] = []
+    warnings: List[str] = []
+    if not config_path.exists():
+        errors.append(f"Pipeline file {config_path.name} does not exist")
+        return {"valid": False, "errors": errors, "warnings": warnings}
+    try:
+        contents = config_path.read_text()
+    except OSError as exc:
+        log_exception(logger, "Failed to read pipeline during validation", exc)
+        errors.append(f"Unable to read pipeline: {exc}")
+        return {"valid": False, "errors": errors, "warnings": warnings}
+    if not contents.strip():
+        errors.append("Pipeline file is empty")
+        return {"valid": False, "errors": errors, "warnings": warnings}
+    try:
+        root = ET.fromstring(contents)
+    except ET.ParseError as exc:
+        errors.append(f"XML parse error: {exc}")
+        return {"valid": False, "errors": errors, "warnings": warnings}
+    if root.tag != "pipeline":
+        errors.append("Root element must be <pipeline>")
+        return {"valid": False, "errors": errors, "warnings": warnings}
+    pipeline_id = root.get("id")
+    layer = root.get("layer")
+    if not pipeline_id:
+        errors.append("Pipeline attribute 'id' is required")
+    if not layer:
+        errors.append("Pipeline attribute 'layer' is required")
+    metadata = root.find("metadata")
+    if metadata is None:
+        errors.append("<metadata> block is required with <appName>")
+        app_name = None
+    else:
+        app_name = (metadata.findtext("appName") or "").strip()
+        if not app_name:
+            errors.append("<appName> must be provided inside <metadata>")
+    sources = root.find("sources")
+    csv_sources = sources.findall("csv") if sources is not None else []
+    if sources is None or not csv_sources:
+        errors.append("At least one <csv> source must be defined")
+    for csv_node in csv_sources:
+        source_id = csv_node.get("id") or "<unknown>"
+        path_value = csv_node.get("path")
+        if not path_value:
+            errors.append(f"Source '{source_id}' is missing required 'path' attribute")
+            continue
+        if _is_remote_path(path_value):
+            warnings.append(f"Skipping remote source path validation for {path_value}")
+        else:
+            path_errors, path_warnings = _validate_data_path(path_value)
+            errors.extend(path_errors)
+            warnings.extend(path_warnings)
+        schema_ref = csv_node.find("schemaRef")
+        if schema_ref is not None and schema_ref.text:
+            schema_errors = _validate_schema_reference(schema_ref.text.strip())
+            errors.extend(schema_errors)
+    targets = root.find("targets")
+    if targets is None or not list(targets):
+        errors.append("At least one <target> is required")
+    for lookup_node in root.findall(".//lookup"):
+        reference = lookup_node.get("reference")
+        if reference:
+            lookup_path = CONFIG_ROOT / "common" / "lookups" / f"{reference}.json"
+            if not lookup_path.exists():
+                warnings.append(f"Lookup reference '{reference}' was not found under common/lookups")
+    logger.debug(
+        "Validation finished for %s (errors=%d warnings=%d)",
+        config_path,
+        len(errors),
+        len(warnings),
+    )
+    return {"valid": len(errors) == 0, "errors": errors, "warnings": warnings}
+
+
+def _validate_data_path(raw_path: str) -> tuple[List[str], List[str]]:
+    errors: List[str] = []
+    warnings: List[str] = []
+    matches = _resolve_data_matches(raw_path)
+    if not matches:
+        errors.append(f"Data file or folder '{raw_path}' does not exist")
+        return errors, warnings
+    empty_files = [path for path in matches if path.is_file() and path.stat().st_size == 0]
+    if empty_files and len(empty_files) == len(matches):
+        errors.append(f"Data file(s) at '{raw_path}' contain no data")
+    elif empty_files:
+        warnings.append(
+            "Some files at '{path}' are empty: {files}".format(
+                path=raw_path,
+                files=", ".join(str(path) for path in empty_files[:3]),
+            )
+        )
+    return errors, warnings
+
+
+def _validate_schema_reference(reference_path: str) -> List[str]:
+    candidate = (BASE_PATH / reference_path).resolve()
+    try:
+        candidate.relative_to(BASE_PATH)
+    except ValueError:
+        return [f"Schema reference '{reference_path}' escapes repository"]
+    if not candidate.exists():
+        return [f"Schema reference '{reference_path}' not found"]
+    return []
+
+
+def _resolve_data_matches(raw_path: str) -> List[Path]:
+    has_glob = any(ch in raw_path for ch in "*?[")
+    candidates: List[str]
+    path_obj = Path(raw_path)
+    if path_obj.is_absolute():
+        candidates = [raw_path]
+    else:
+        candidates = [
+            str((BASE_PATH / raw_path)),
+            str((DATA_ROOT / raw_path)),
+        ]
+    resolved: List[Path] = []
+    for candidate in candidates:
+        if has_glob:
+            resolved.extend(Path(match) for match in glob(candidate))
+        else:
+            path_candidate = Path(candidate)
+            if path_candidate.exists():
+                resolved.append(path_candidate)
+    unique: List[Path] = []
+    seen = set()
+    for match in resolved:
+        match_resolved = match.resolve()
+        if match_resolved in seen:
+            continue
+        seen.add(match_resolved)
+        unique.append(match_resolved)
+    return unique
+
+
+def _is_remote_path(raw_path: str) -> bool:
+    return raw_path.startswith(REMOTE_PREFIXES)
 
 
 def _build_tree(root: Path) -> List[dict]:

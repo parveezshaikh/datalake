@@ -7,11 +7,15 @@ from typing import List
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from libs.logging_utils import configure_logging, log_exception
 from services.workers.pipeline_runner import PipelineRunner
+
+configure_logging()
 
 app = FastAPI(title="Data Lake Orchestrator", version="0.1.0")
 logger = logging.getLogger("orchestrator")
-runner = PipelineRunner(base_path=Path(__file__).resolve().parents[2])
+BASE_PATH = Path(__file__).resolve().parents[2]
+runner = PipelineRunner(base_path=BASE_PATH)
 
 
 class PipelineRunRequest(BaseModel):
@@ -34,17 +38,27 @@ def health() -> dict:
 
 @app.get("/pipelines")
 def list_pipelines(app_name: str, layer: str) -> List[str]:
-    base = Path(__file__).resolve().parents[2] / "config" / "applications" / app_name / layer / "pipelines"
-    if not base.exists():
-        raise HTTPException(status_code=404, detail=f"No pipelines found for {app_name}/{layer}")
-    return sorted(path.stem for path in base.glob("*.xml"))
+    try:
+        base = BASE_PATH / "config" / "applications" / app_name / layer / "pipelines"
+        if not base.exists():
+            raise HTTPException(status_code=404, detail=f"No pipelines found for {app_name}/{layer}")
+        return sorted(path.stem for path in base.glob("*.xml"))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log_exception(logger, "Failed to list pipelines", exc)
+        raise HTTPException(status_code=500, detail="Unable to list pipelines") from exc
 
 
 def _run_pipeline_sync(payload: PipelineRunRequest) -> PipelineRunResponse:
     try:
         result = runner.run_by_id(app=payload.app, layer=payload.layer, pipeline_id=payload.pipeline_id, overrides=payload.parameters)
     except FileNotFoundError as exc:  # pragma: no cover - FastAPI level
+        log_exception(logger, "Pipeline run failed - definition missing", exc)
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        log_exception(logger, "Pipeline execution failed", exc)
+        raise HTTPException(status_code=500, detail="Pipeline execution failed") from exc
     return PipelineRunResponse(run_id=result["run_id"], status="completed", metrics=result["metrics"])
 
 
@@ -57,7 +71,12 @@ def trigger_pipeline(payload: PipelineRunRequest, background_tasks: BackgroundTa
 
     def _background_job():
         logger.info("Starting async run for %s", payload.pipeline_id)
-        _run_pipeline_sync(payload)
+        try:
+            _run_pipeline_sync(payload)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            log_exception(logger, "Background run crashed", exc)
 
     background_tasks.add_task(_background_job)
     return response
