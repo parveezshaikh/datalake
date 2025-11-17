@@ -20,7 +20,8 @@ BASE_PATH = Path(__file__).resolve().parents[2]
 CONFIG_ROOT = (BASE_PATH / "config").resolve()
 DATA_ROOT = (BASE_PATH / "data").resolve()
 LOGS_ROOT = (BASE_PATH / "logs").resolve()
-STATIC_DIR = Path(__file__).resolve().parent / "self_service" / "static"
+SELF_STATIC_DIR = Path(__file__).resolve().parent / "self_service" / "static"
+DASHBOARD_STATIC_DIR = Path(__file__).resolve().parent / "dashboard" / "static"
 REMOTE_PREFIXES = ("s3://", "gs://", "abfs://", "adl://", "jdbc:", "http://", "https://")
 
 configure_logging()
@@ -29,8 +30,8 @@ app = FastAPI(title="Self-Service Portal", version="0.1.0")
 logger = logging.getLogger("self_service")
 runner = PipelineRunner(base_path=BASE_PATH)
 
-if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+if SELF_STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=SELF_STATIC_DIR), name="static")
 
 
 class PipelinePayload(BaseModel):
@@ -157,12 +158,12 @@ async def root_page() -> HTMLResponse:
 
 @app.get("/self", response_class=HTMLResponse)
 async def self_service_portal() -> HTMLResponse:
-    return _serve_static_page("selfservice.html")
+    return _serve_static_page("selfservice.html", base_dir=SELF_STATIC_DIR)
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_portal() -> HTMLResponse:
-    return _serve_static_page("dashboard/index.html")
+    return _serve_static_page("dashboard.html", base_dir=DASHBOARD_STATIC_DIR)
 
 
 @app.get("/api/pipelines/tree")
@@ -321,8 +322,8 @@ async def get_dashboard_operations() -> dict:
         raise HTTPException(status_code=500, detail="Unable to load operations data") from exc
 
 
-def _serve_static_page(filename: str) -> HTMLResponse:
-    asset_path = STATIC_DIR / filename
+def _serve_static_page(filename: str, *, base_dir: Path) -> HTMLResponse:
+    asset_path = base_dir / filename
     if not asset_path.exists():
         raise HTTPException(status_code=404, detail=f"{filename} asset missing")
     return HTMLResponse(asset_path.read_text())
