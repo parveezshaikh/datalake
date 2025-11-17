@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Optional
@@ -40,6 +41,9 @@ class PipelineRunner:
         return context
 
     def run_pipeline(self, pipeline_path: Path, *, overrides: Optional[Dict[str, str]] = None) -> Dict[str, object]:
+        start_time = time.time()
+        pipeline_config = None
+        context: Optional[PipelineContext] = None
         try:
             pipeline_config = load_pipeline_config(pipeline_path)
             context = self._build_context(pipeline_config, overrides=overrides)
@@ -52,9 +56,26 @@ class PipelineRunner:
                 "metrics": context.metrics.counters,
                 "run_id": context.run_id,
             }
-            self._write_run_log(pipeline_config, context, result)
+            duration_ms = max(int((time.time() - start_time) * 1000), 0)
+            try:
+                self._write_run_log(pipeline_config, context, result, status="completed", duration_ms=duration_ms)
+            except Exception:
+                self.logger.exception("Failed to record pipeline log for %s", pipeline_config.pipeline_id)
             return result
         except Exception as exc:
+            if pipeline_config is not None and context is not None:
+                duration_ms = max(int((time.time() - start_time) * 1000), 0)
+                failed_result = {
+                    "pipeline_id": pipeline_config.pipeline_id,
+                    "metrics": context.metrics.counters,
+                    "run_id": context.run_id,
+                }
+                try:
+                    self._write_run_log(
+                        pipeline_config, context, failed_result, status="failed", duration_ms=duration_ms, error=str(exc)
+                    )
+                except Exception:
+                    self.logger.exception("Failed to record pipeline failure for %s", pipeline_config.pipeline_id)
             log_exception(self.logger, f"Pipeline execution failed for {pipeline_path}", exc)
             raise
 
@@ -66,7 +87,7 @@ class PipelineRunner:
             raise error
         return self.run_pipeline(pipeline_path, overrides=overrides)
 
-    def _write_run_log(self, pipeline_config, context, result) -> None:
+    def _write_run_log(self, pipeline_config, context, result, *, status: str, duration_ms: int, error: str | None = None) -> None:
         logs_root = (
             self.base_path
             / "logs"
@@ -84,7 +105,11 @@ class PipelineRunner:
             "executed_at": datetime.now(timezone.utc).isoformat(),
             "metrics": result.get("metrics", {}),
             "config_path": str(pipeline_config.path or ""),
+            "status": status,
+            "duration_ms": duration_ms,
         }
+        if error:
+            log_entry["error"] = error
         log_path = logs_root / f"{pipeline_config.pipeline_id}_{context.run_id}.log"
         log_path.write_text(json.dumps(log_entry, indent=2))
         self.logger.info("Pipeline log recorded at %s", log_path)

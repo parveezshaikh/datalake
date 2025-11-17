@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Data Lake Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
+    <style>
+      :root {
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        color: #13293d;
+        background: #f6f8fa;
+      }
+
+      body {
+        margin: 0;
+        background: #f6f8fa;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      header {
+        background: #0b6fb8;
+        color: #fff;
+        padding: 1rem 2rem;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 1rem;
+      }
+
+      header h1 {
+        margin: 0;
+        font-size: 1.5rem;
+      }
+
+      header p {
+        margin: 0.25rem 0 0;
+        font-size: 0.9rem;
+        opacity: 0.85;
+      }
+
+      nav a {
+        color: #e5f1fb;
+        text-decoration: none;
+        margin-left: 1rem;
+        font-weight: 600;
+        padding: 0.35rem 1rem;
+        border-radius: 999px;
+        border: 1px solid transparent;
+      }
+
+      nav a:hover,
+      nav a.active {
+        background: rgba(255, 255, 255, 0.15);
+        border-color: rgba(255, 255, 255, 0.3);
+      }
+
+      main {
+        flex: 1;
+        padding: 1.5rem 2rem 3rem;
+        max-width: 1200px;
+        margin: 0 auto;
+        width: 100%;
+      }
+
+      .tab-container {
+        background: #fff;
+        border-radius: 16px;
+        box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+        overflow: hidden;
+      }
+
+      .tab-header {
+        display: flex;
+        border-bottom: 1px solid #e5e7eb;
+      }
+
+      .tab-header button {
+        flex: 1;
+        padding: 1rem;
+        border: none;
+        background: none;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        color: #475569;
+      }
+
+      .tab-header button.active {
+        color: #0b6fb8;
+        border-bottom: 3px solid #0b6fb8;
+      }
+
+      .tab-panel {
+        display: none;
+        padding: 1.5rem;
+      }
+
+      .tab-panel.active {
+        display: block;
+      }
+
+      .filters,
+      .ops-filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 1rem;
+      }
+
+      label {
+        font-size: 0.85rem;
+        color: #475569;
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+      }
+
+      select,
+      input[type='text'],
+      input[type='date'] {
+        border-radius: 8px;
+        border: 1px solid #cbd5f5;
+        padding: 0.5rem 0.75rem;
+        min-width: 180px;
+        font-family: inherit;
+        font-size: 0.95rem;
+      }
+
+      button.clear-btn {
+        border: none;
+        border-radius: 999px;
+        padding: 0.5rem 1.5rem;
+        background: #e0e7ff;
+        color: #1d4ed8;
+        font-weight: 600;
+        cursor: pointer;
+        align-self: flex-end;
+      }
+
+      button.clear-btn:hover {
+        background: #c7d2fe;
+      }
+
+      .summary-metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+      }
+
+      .stat-card {
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 1rem;
+        background: #f8fafc;
+      }
+
+      .stat-card span {
+        font-size: 0.85rem;
+        color: #64748b;
+      }
+
+      .stat-card strong {
+        display: block;
+        margin-top: 0.35rem;
+        font-size: 1.5rem;
+        color: #0f172a;
+      }
+
+      .chart-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1rem;
+      }
+
+      .chart-card {
+        border: 1px solid #e5e7eb;
+        border-radius: 14px;
+        padding: 1rem;
+        min-height: 280px;
+        background: #fff;
+      }
+
+      .chart-card h3 {
+        margin-top: 0;
+        font-size: 1rem;
+        color: #0f172a;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.95rem;
+      }
+
+      thead {
+        background: #f1f5f9;
+      }
+
+      th,
+      td {
+        text-align: left;
+        padding: 0.65rem 0.5rem;
+        border-bottom: 1px solid #e5e7eb;
+      }
+
+      tbody tr:hover {
+        background: #f8fafc;
+      }
+
+      .status-chip {
+        padding: 0.2rem 0.75rem;
+        border-radius: 999px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        text-transform: capitalize;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+      }
+
+      .status-completed {
+        background: #dcfce7;
+        color: #166534;
+      }
+
+      .status-failed {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+
+      .muted {
+        color: #94a3b8;
+        font-size: 0.9rem;
+      }
+
+      .table-wrapper {
+        overflow-x: auto;
+      }
+
+      #dashboard-status {
+        margin-bottom: 1rem;
+        font-size: 0.95rem;
+        color: #475569;
+      }
+
+      #dashboard-status.error {
+        color: #b91c1c;
+      }
+
+      @media (max-width: 720px) {
+        header,
+        main {
+          padding: 1rem;
+        }
+
+        select,
+        input[type='text'],
+        input[type='date'] {
+          min-width: 140px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>Data Lake Dashboard</h1>
+        <p>Monitor configuration inventory and pipeline operations in real time.</p>
+      </div>
+      <nav>
+        <a href="/self">Self-Service Portal</a>
+        <a href="/dashboard" class="active">Dashboard</a>
+      </nav>
+    </header>
+    <main>
+      <div id="dashboard-status">Loading dashboard data…</div>
+      <div class="tab-container">
+        <div class="tab-header">
+          <button class="tab-button active" data-target="config-tab">Configurations</button>
+          <button class="tab-button" data-target="operations-tab">Operations</button>
+        </div>
+        <section id="config-tab" class="tab-panel active">
+          <div class="filters">
+            <label>
+              Application
+              <select id="config-app-filter">
+                <option value="all">All applications</option>
+              </select>
+            </label>
+            <label>
+              Layer
+              <select id="config-layer-filter">
+                <option value="all">All layers</option>
+              </select>
+            </label>
+            <label>
+              Pipeline search
+              <input type="text" id="config-pipeline-search" placeholder="Search pipeline" />
+            </label>
+            <button class="clear-btn" id="config-clear">Clear filters</button>
+          </div>
+          <div class="summary-metrics">
+            <div class="stat-card">
+              <span>Pipelines</span>
+              <strong id="pipelines-total">0</strong>
+            </div>
+            <div class="stat-card">
+              <span>Jobs</span>
+              <strong id="jobs-total">0</strong>
+            </div>
+            <div class="stat-card">
+              <span>Data files</span>
+              <strong id="data-files-total">0</strong>
+            </div>
+          </div>
+          <div class="chart-grid">
+            <div class="chart-card">
+              <h3>Pipelines & Jobs by Application</h3>
+              <canvas id="chart-by-app" height="220"></canvas>
+            </div>
+            <div class="chart-card">
+              <h3>Pipelines & Jobs by Layer</h3>
+              <canvas id="chart-by-layer" height="220"></canvas>
+            </div>
+            <div class="chart-card">
+              <h3>Data Files by Application</h3>
+              <canvas id="chart-files-by-app" height="220"></canvas>
+            </div>
+            <div class="chart-card">
+              <h3>Data Files by Layer</h3>
+              <canvas id="chart-files-by-layer" height="220"></canvas>
+            </div>
+          </div>
+        </section>
+        <section id="operations-tab" class="tab-panel">
+          <div class="ops-filters">
+            <label>
+              Application
+              <select id="ops-app-filter">
+                <option value="all">All applications</option>
+              </select>
+            </label>
+            <label>
+              Layer
+              <select id="ops-layer-filter">
+                <option value="all">All layers</option>
+              </select>
+            </label>
+            <label>
+              Run date
+              <input type="date" id="ops-date-filter" />
+            </label>
+            <label>
+              Pipeline search
+              <input type="text" id="ops-pipeline-search" placeholder="Search pipeline" />
+            </label>
+            <button class="clear-btn" id="ops-clear">Clear filters</button>
+          </div>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Pipeline</th>
+                  <th>Application</th>
+                  <th>Layer</th>
+                  <th>Run date</th>
+                  <th>Rows processed</th>
+                  <th>Status</th>
+                  <th>Run time (min)</th>
+                </tr>
+              </thead>
+              <tbody id="operations-body">
+                <tr>
+                  <td colspan="7" class="muted">Waiting for run history…</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </main>
+    <script>
+      const state = {
+        config: {
+          summaries: [],
+          applications: [],
+          layers: [],
+          filters: { app: 'all', layer: 'all', query: '' },
+        },
+        operations: {
+          runs: [],
+          filters: { app: 'all', layer: 'all', query: '', date: '' },
+        },
+      };
+
+      const charts = {};
+      const colors = {
+        primary: '#0b6fb8',
+        secondary: '#4f46e5',
+        accent: '#14b8a6',
+        neutral: '#94a3b8',
+      };
+
+      const statusEl = document.getElementById('dashboard-status');
+      const configAppFilter = document.getElementById('config-app-filter');
+      const configLayerFilter = document.getElementById('config-layer-filter');
+      const configSearch = document.getElementById('config-pipeline-search');
+      const opsAppFilter = document.getElementById('ops-app-filter');
+      const opsLayerFilter = document.getElementById('ops-layer-filter');
+      const opsDateFilter = document.getElementById('ops-date-filter');
+      const opsSearch = document.getElementById('ops-pipeline-search');
+      const operationsBody = document.getElementById('operations-body');
+
+      document.querySelectorAll('.tab-button').forEach((button) => {
+        button.addEventListener('click', () => {
+          document.querySelectorAll('.tab-button').forEach((btn) => btn.classList.remove('active'));
+          document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.remove('active'));
+          button.classList.add('active');
+          const target = document.getElementById(button.dataset.target);
+          if (target) target.classList.add('active');
+        });
+      });
+
+      async function bootstrapDashboard() {
+        try {
+          const [configRes, opsRes] = await Promise.all([
+            fetch('/api/dashboard/config-summary'),
+            fetch('/api/dashboard/operations'),
+          ]);
+          if (!configRes.ok) {
+            throw new Error('Configuration summary request failed');
+          }
+          if (!opsRes.ok) {
+            throw new Error('Operations data request failed');
+          }
+          const configPayload = await configRes.json();
+          const opsPayload = await opsRes.json();
+          state.config.summaries = configPayload.summaries || [];
+          state.config.applications = configPayload.applications || [];
+          state.config.layers = configPayload.layers || [];
+          state.operations.runs = opsPayload.runs || [];
+          populateFilterOptions();
+          statusEl.textContent = 'Dashboard ready';
+          statusEl.classList.remove('error');
+          setTimeout(() => (statusEl.style.display = 'none'), 2000);
+          bindFilterEvents();
+          updateConfigView();
+          updateOperationsView();
+        } catch (error) {
+          console.error(error);
+          statusEl.textContent = 'Unable to load dashboard data. Please refresh to retry.';
+          statusEl.classList.add('error');
+        }
+      }
+
+      function populateFilterOptions() {
+        const appOptions = ['all', ...state.config.applications];
+        const layerOptions = ['all', ...state.config.layers];
+        populateSelect(configAppFilter, appOptions, 'All applications');
+        populateSelect(opsAppFilter, appOptions, 'All applications');
+        populateSelect(configLayerFilter, layerOptions, 'All layers');
+        populateSelect(opsLayerFilter, layerOptions, 'All layers');
+      }
+
+      function populateSelect(selectEl, values, defaultLabel) {
+        selectEl.innerHTML = '';
+        values.forEach((value) => {
+          const option = document.createElement('option');
+          option.value = value;
+          option.textContent = value === 'all' ? defaultLabel : value;
+          selectEl.appendChild(option);
+        });
+      }
+
+      function bindFilterEvents() {
+        configAppFilter.addEventListener('change', (event) => {
+          state.config.filters.app = event.target.value;
+          updateConfigView();
+        });
+        configLayerFilter.addEventListener('change', (event) => {
+          state.config.filters.layer = event.target.value;
+          updateConfigView();
+        });
+        configSearch.addEventListener('input', (event) => {
+          state.config.filters.query = event.target.value.toLowerCase();
+          updateConfigView();
+        });
+        document.getElementById('config-clear').addEventListener('click', () => {
+          configAppFilter.value = 'all';
+          configLayerFilter.value = 'all';
+          configSearch.value = '';
+          state.config.filters = { app: 'all', layer: 'all', query: '' };
+          updateConfigView();
+        });
+        opsAppFilter.addEventListener('change', (event) => {
+          state.operations.filters.app = event.target.value;
+          updateOperationsView();
+        });
+        opsLayerFilter.addEventListener('change', (event) => {
+          state.operations.filters.layer = event.target.value;
+          updateOperationsView();
+        });
+        opsDateFilter.addEventListener('change', (event) => {
+          state.operations.filters.date = event.target.value;
+          updateOperationsView();
+        });
+        opsSearch.addEventListener('input', (event) => {
+          state.operations.filters.query = event.target.value.toLowerCase();
+          updateOperationsView();
+        });
+        document.getElementById('ops-clear').addEventListener('click', () => {
+          opsAppFilter.value = 'all';
+          opsLayerFilter.value = 'all';
+          opsDateFilter.value = '';
+          opsSearch.value = '';
+          state.operations.filters = { app: 'all', layer: 'all', query: '', date: '' };
+          updateOperationsView();
+        });
+      }
+
+      function updateConfigView() {
+        const filteredSummaries = state.config.summaries.filter((summary) => {
+          const matchesApp = state.config.filters.app === 'all' || summary.app === state.config.filters.app;
+          const matchesLayer = state.config.filters.layer === 'all' || summary.layer === state.config.filters.layer;
+          if (!matchesApp || !matchesLayer) return false;
+          if (!state.config.filters.query) return true;
+          return summary.pipelines.some((pipeline) =>
+            pipeline.toLowerCase().includes(state.config.filters.query)
+          );
+        });
+
+        const totals = filteredSummaries.reduce(
+          (acc, summary) => {
+            acc.pipelines += summary.pipelines.length;
+            acc.jobs += summary.jobs.length;
+            acc.files += summary.data_file_count;
+            return acc;
+          },
+          { pipelines: 0, jobs: 0, files: 0 }
+        );
+
+        document.getElementById('pipelines-total').textContent = totals.pipelines.toLocaleString();
+        document.getElementById('jobs-total').textContent = totals.jobs.toLocaleString();
+        document.getElementById('data-files-total').textContent = totals.files.toLocaleString();
+
+        const pipelinesByApp = new Map();
+        const jobsByApp = new Map();
+        const dataFilesByApp = new Map();
+        const pipelinesByLayer = new Map();
+        const jobsByLayer = new Map();
+        const dataFilesByLayer = new Map();
+
+        filteredSummaries.forEach((summary) => {
+          pipelinesByApp.set(summary.app, (pipelinesByApp.get(summary.app) || 0) + summary.pipelines.length);
+          jobsByApp.set(summary.app, (jobsByApp.get(summary.app) || 0) + summary.jobs.length);
+          dataFilesByApp.set(summary.app, (dataFilesByApp.get(summary.app) || 0) + summary.data_file_count);
+          pipelinesByLayer.set(summary.layer, (pipelinesByLayer.get(summary.layer) || 0) + summary.pipelines.length);
+          jobsByLayer.set(summary.layer, (jobsByLayer.get(summary.layer) || 0) + summary.jobs.length);
+          dataFilesByLayer.set(summary.layer, (dataFilesByLayer.get(summary.layer) || 0) + summary.data_file_count);
+        });
+
+        renderBarChart(
+          'chart-by-app',
+          Array.from(pipelinesByApp.keys()),
+          [
+            { label: 'Pipelines', data: Array.from(pipelinesByApp.values()), backgroundColor: colors.primary },
+            { label: 'Jobs', data: Array.from(jobsByApp.values()), backgroundColor: colors.secondary },
+          ]
+        );
+
+        renderBarChart(
+          'chart-by-layer',
+          Array.from(pipelinesByLayer.keys()),
+          [
+            { label: 'Pipelines', data: Array.from(pipelinesByLayer.values()), backgroundColor: colors.primary },
+            { label: 'Jobs', data: Array.from(jobsByLayer.values()), backgroundColor: colors.secondary },
+          ]
+        );
+
+        renderBarChart(
+          'chart-files-by-app',
+          Array.from(dataFilesByApp.keys()),
+          [
+            { label: 'Data files', data: Array.from(dataFilesByApp.values()), backgroundColor: colors.accent },
+          ]
+        );
+
+        renderBarChart(
+          'chart-files-by-layer',
+          Array.from(dataFilesByLayer.keys()),
+          [
+            { label: 'Data files', data: Array.from(dataFilesByLayer.values()), backgroundColor: colors.accent },
+          ]
+        );
+      }
+
+      function renderBarChart(canvasId, labels, datasets) {
+        const context = document.getElementById(canvasId).getContext('2d');
+        if (!charts[canvasId]) {
+          charts[canvasId] = new Chart(context, {
+            type: 'bar',
+            data: { labels, datasets },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { display: datasets.length > 1, position: 'bottom' },
+              },
+              scales: {
+                x: { ticks: { color: '#475569' } },
+                y: {
+                  beginAtZero: true,
+                  ticks: { stepSize: 1, color: '#475569' },
+                  grid: { color: '#e2e8f0' },
+                },
+              },
+            },
+          });
+        } else {
+          const chart = charts[canvasId];
+          chart.data.labels = labels;
+          chart.data.datasets = datasets;
+          chart.update();
+        }
+      }
+
+      function updateOperationsView() {
+        const filteredRuns = state.operations.runs.filter((run) => {
+          const matchesApp = state.operations.filters.app === 'all' || run.app_name === state.operations.filters.app;
+          const matchesLayer = state.operations.filters.layer === 'all' || run.layer === state.operations.filters.layer;
+          const matchesQuery =
+            !state.operations.filters.query ||
+            (run.pipeline_id || '').toLowerCase().includes(state.operations.filters.query);
+          const matchesDate =
+            !state.operations.filters.date ||
+            ((run.executed_at || '').slice(0, 10) === state.operations.filters.date);
+          return matchesApp && matchesLayer && matchesQuery && matchesDate;
+        });
+
+        operationsBody.innerHTML = '';
+        if (!filteredRuns.length) {
+          const row = document.createElement('tr');
+          const cell = document.createElement('td');
+          cell.colSpan = 7;
+          cell.className = 'muted';
+          cell.textContent = 'No pipeline runs match the selected filters yet.';
+          row.appendChild(cell);
+          operationsBody.appendChild(row);
+          return;
+        }
+
+        filteredRuns.forEach((run) => {
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td>${run.pipeline_id || '—'}</td>
+            <td>${run.app_name || '—'}</td>
+            <td>${run.layer || '—'}</td>
+            <td>${run.executed_at ? new Date(run.executed_at).toLocaleString() : '—'}</td>
+            <td>${run.rows_processed != null ? Number(run.rows_processed).toLocaleString() : '—'}</td>
+            <td>
+              <span class="status-chip ${run.status === 'failed' ? 'status-failed' : 'status-completed'}">
+                ${run.status || 'completed'}
+              </span>
+            </td>
+            <td>${run.duration_minutes != null ? Number(run.duration_minutes).toFixed(2) : '—'}</td>
+          `;
+          operationsBody.appendChild(row);
+        });
+      }
+
+      document.addEventListener('DOMContentLoaded', bootstrapDashboard);
+    </script>
+  </body>
+</html>

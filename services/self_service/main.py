@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import logging
 import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
 from glob import glob
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -151,10 +152,17 @@ TRANSFORMATIONS_METADATA = [
 
 @app.get("/", response_class=HTMLResponse)
 async def root_page() -> HTMLResponse:
-    index_path = STATIC_DIR / "index.html"
-    if not index_path.exists():
-        raise HTTPException(status_code=404, detail="UI assets missing")
-    return HTMLResponse(index_path.read_text())
+    return RedirectResponse(url="/self")
+
+
+@app.get("/self", response_class=HTMLResponse)
+async def self_service_portal() -> HTMLResponse:
+    return _serve_static_page("index.html")
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_portal() -> HTMLResponse:
+    return _serve_static_page("dashboard.html")
 
 
 @app.get("/api/pipelines/tree")
@@ -291,6 +299,33 @@ async def get_pipeline_log(
 @app.get("/api/transformations")
 async def list_transformations() -> List[dict]:
     return TRANSFORMATIONS_METADATA
+
+
+@app.get("/api/dashboard/config-summary")
+async def get_dashboard_config_summary() -> dict:
+    try:
+        summary = _build_dashboard_configuration_summary()
+        return summary
+    except Exception as exc:
+        log_exception(logger, "Failed to load dashboard configuration summary", exc)
+        raise HTTPException(status_code=500, detail="Unable to load configuration summary") from exc
+
+
+@app.get("/api/dashboard/operations")
+async def get_dashboard_operations() -> dict:
+    try:
+        runs = _collect_pipeline_run_history()
+        return {"runs": runs, "generated_at": datetime.now(timezone.utc).isoformat()}
+    except Exception as exc:
+        log_exception(logger, "Failed to load operations dashboard data", exc)
+        raise HTTPException(status_code=500, detail="Unable to load operations data") from exc
+
+
+def _serve_static_page(filename: str) -> HTMLResponse:
+    asset_path = STATIC_DIR / filename
+    if not asset_path.exists():
+        raise HTTPException(status_code=404, detail=f"{filename} asset missing")
+    return HTMLResponse(asset_path.read_text())
 
 
 def _validate_pipeline_file(config_path: Path) -> dict:
@@ -519,6 +554,128 @@ def _load_log_file(path: Path) -> Optional[dict]:
         return json.loads(path.read_text())
     except (json.JSONDecodeError, OSError):
         return None
+
+
+def _build_dashboard_configuration_summary() -> dict:
+    summaries: List[dict] = []
+    applications_root = CONFIG_ROOT / "applications"
+    if not applications_root.exists():
+        return {"applications": [], "layers": [], "summaries": [], "generated_at": datetime.now(timezone.utc).isoformat()}
+    layers: set[str] = set()
+    applications: List[str] = []
+    for app_dir in _iter_child_directories(applications_root):
+        app_name = app_dir.name
+        applications.append(app_name)
+        for layer_dir in _iter_child_directories(app_dir):
+            layer_name = layer_dir.name
+            layers.add(layer_name)
+            pipelines = _collect_xml_ids(layer_dir / "pipelines")
+            jobs = _collect_xml_ids(layer_dir / "jobs")
+            data_files = _count_data_files(app_name, layer_name)
+            summaries.append(
+                {
+                    "app": app_name,
+                    "layer": layer_name,
+                    "pipelines": pipelines,
+                    "jobs": jobs,
+                    "data_file_count": data_files,
+                }
+            )
+    summaries.sort(key=lambda item: (item["app"], item["layer"]))
+    return {
+        "applications": applications,
+        "layers": sorted(layers),
+        "summaries": summaries,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _iter_child_directories(parent: Path) -> List[Path]:
+    if not parent.exists():
+        return []
+    entries: List[Path] = []
+    for child in sorted(parent.iterdir(), key=lambda p: p.name.lower()):
+        if child.is_dir() and not child.name.startswith((".", "_")):
+            entries.append(child)
+    return entries
+
+
+def _collect_xml_ids(path: Path) -> List[str]:
+    if not path.exists():
+        return []
+    return sorted(child.stem for child in path.glob("*.xml"))
+
+
+def _count_data_files(app_name: str, layer_name: str) -> int:
+    layer_root = DATA_ROOT / "applications" / app_name / layer_name
+    if not layer_root.exists():
+        return 0
+    count = 0
+    for candidate in layer_root.rglob("*"):
+        if candidate.is_file():
+            count += 1
+    return count
+
+
+def _collect_pipeline_run_history() -> List[dict]:
+    logs_root = LOGS_ROOT / "applications"
+    if not logs_root.exists():
+        return []
+    runs: List[dict] = []
+    for app_dir in _iter_child_directories(logs_root):
+        app_name = app_dir.name
+        for layer_dir in _iter_child_directories(app_dir):
+            layer_name = layer_dir.name
+            for log_file in sorted(layer_dir.glob("*.log")):
+                payload = _load_log_file(log_file)
+                if not payload:
+                    continue
+                metrics = payload.get("metrics") or {}
+                duration_ms = payload.get("duration_ms")
+                duration_minutes = None
+                if isinstance(duration_ms, (int, float)):
+                    duration_minutes = round(duration_ms / 60000, 2)
+                rows_processed = _derive_row_count(metrics)
+                runs.append(
+                    {
+                        "run_id": payload.get("run_id"),
+                        "pipeline_id": payload.get("pipeline_id"),
+                        "app_name": payload.get("app_name") or app_name,
+                        "layer": payload.get("layer") or layer_name,
+                        "executed_at": payload.get("executed_at"),
+                        "rows_processed": rows_processed,
+                        "status": payload.get("status", "completed"),
+                        "duration_minutes": duration_minutes,
+                    }
+                )
+    runs.sort(key=lambda item: item.get("executed_at") or "", reverse=True)
+    return runs
+
+
+def _derive_row_count(metrics: Dict[str, object]) -> Optional[int]:
+    if not metrics:
+        return None
+    preferred_keys = ["rows_processed", "records_processed", "rows_written", "records_written"]
+    for key in preferred_keys:
+        value = metrics.get(key)
+        if isinstance(value, (int, float)):
+            return int(value)
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+    total = 0.0
+    for key, value in metrics.items():
+        if "row" not in key.lower() and "record" not in key.lower():
+            continue
+        if isinstance(value, (int, float)):
+            total += float(value)
+        elif isinstance(value, str):
+            try:
+                total += float(value)
+            except ValueError:
+                continue
+    if total > 0:
+        return int(total)
+    return None
 
 
 if __name__ == "__main__":  # pragma: no cover
