@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from libs.logging_utils import configure_logging, log_exception
 from services.workers.pipeline_runner import PipelineRunner
 
-BASE_PATH = Path(__file__).resolve().parents[2]
+BASE_PATH = Path(__file__).resolve().parents[1]
 CONFIG_ROOT = (BASE_PATH / "config").resolve()
 DATA_ROOT = (BASE_PATH / "data").resolve()
 LOGS_ROOT = (BASE_PATH / "logs").resolve()
