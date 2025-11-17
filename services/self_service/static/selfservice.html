@@ -23,11 +23,36 @@
         color: #fff;
         padding: 1rem 2rem;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
       }
 
       header h1 {
         margin: 0;
         font-size: 1.5rem;
+      }
+
+      header p {
+        margin: 0.25rem 0 0;
+      }
+
+      header nav a {
+        color: #e5f1fb;
+        text-decoration: none;
+        margin-left: 1rem;
+        font-weight: 600;
+        padding: 0.35rem 1rem;
+        border-radius: 999px;
+        border: 1px solid transparent;
+      }
+
+      header nav a:hover,
+      header nav a.active {
+        background: rgba(255, 255, 255, 0.15);
+        border-color: rgba(255, 255, 255, 0.3);
       }
 
       main {
@@ -283,8 +308,14 @@
   </head>
   <body>
     <header>
-      <h1>Data Pipeline Self-Service Portal</h1>
-      <p>Browse, create, edit, and validate XML pipelines with reusable transformations.</p>
+      <div>
+        <h1>Data Lake - Self Service Portal</h1>
+        <p>Browse, create, edit, and validate XML pipelines with reusable transformations.</p>
+      </div>
+      <nav>
+        <a href="/self" class="active">Self-Service Portal</a>
+        <a href="/dashboard">Dashboard</a>
+      </nav>
     </header>
     <main>
       <section>

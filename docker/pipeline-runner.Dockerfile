@@ -43,5 +43,5 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 EXPOSE ${UVICORN_PORT}
 
-ENTRYPOINT ["uvicorn", "services.self_service.main:app"]
+ENTRYPOINT ["uvicorn", "services.main:app"]
 CMD ["--host", "0.0.0.0", "--port", "8080"]

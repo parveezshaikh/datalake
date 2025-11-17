@@ -20,7 +20,7 @@ BASE_PATH = Path(__file__).resolve().parents[2]
 CONFIG_ROOT = (BASE_PATH / "config").resolve()
 DATA_ROOT = (BASE_PATH / "data").resolve()
 LOGS_ROOT = (BASE_PATH / "logs").resolve()
-STATIC_DIR = Path(__file__).resolve().parent / "static"
+STATIC_DIR = Path(__file__).resolve().parent / "self_service" / "static"
 REMOTE_PREFIXES = ("s3://", "gs://", "abfs://", "adl://", "jdbc:", "http://", "https://")
 
 configure_logging()
@@ -157,12 +157,12 @@ async def root_page() -> HTMLResponse:
 
 @app.get("/self", response_class=HTMLResponse)
 async def self_service_portal() -> HTMLResponse:
-    return _serve_static_page("index.html")
+    return _serve_static_page("selfservice.html")
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_portal() -> HTMLResponse:
-    return _serve_static_page("dashboard.html")
+    return _serve_static_page("dashboard/index.html")
 
 
 @app.get("/api/pipelines/tree")
@@ -681,4 +681,4 @@ def _derive_row_count(metrics: Dict[str, object]) -> Optional[int]:
 if __name__ == "__main__":  # pragma: no cover
     import uvicorn
 
-    uvicorn.run("services.self_service.main:app", host="0.0.0.0", port=8081, reload=True)
+    uvicorn.run("services.main:app", host="0.0.0.0", port=8081, reload=True)
