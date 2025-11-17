@@ -180,22 +180,32 @@
 
       .chart-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
         gap: 1rem;
+        align-items: stretch;
       }
 
       .chart-card {
         border: 1px solid #e5e7eb;
         border-radius: 14px;
         padding: 1rem;
-        min-height: 280px;
+        min-height: 220px;
+        height: min(32vh, 320px);
         background: #fff;
+        display: flex;
+        flex-direction: column;
       }
 
       .chart-card h3 {
         margin-top: 0;
         font-size: 1rem;
         color: #0f172a;
+      }
+
+      .chart-card canvas {
+        flex: 1;
+        width: 100% !important;
+        height: 100% !important;
       }
 
       table {

@@ -563,10 +563,10 @@ def _build_dashboard_configuration_summary() -> dict:
     if not applications_root.exists():
         return {"applications": [], "layers": [], "summaries": [], "generated_at": datetime.now(timezone.utc).isoformat()}
     layers: set[str] = set()
-    applications: List[str] = []
+    applications: set[str] = set()
     for app_dir in _iter_child_directories(applications_root):
         app_name = app_dir.name
-        applications.append(app_name)
+        applications.add(app_name)
         for layer_dir in _iter_child_directories(app_dir):
             layer_name = layer_dir.name
             layers.add(layer_name)
@@ -584,7 +584,7 @@ def _build_dashboard_configuration_summary() -> dict:
             )
     summaries.sort(key=lambda item: (item["app"], item["layer"]))
     return {
-        "applications": applications,
+        "applications": sorted(applications),
         "layers": sorted(layers),
         "summaries": summaries,
         "generated_at": datetime.now(timezone.utc).isoformat(),
