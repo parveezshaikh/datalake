@@ -150,6 +150,8 @@ TRANSFORMATIONS_METADATA = [
     },
 ]
 
+TRANSFORMATION_METADATA_MAP = {meta["name"]: meta for meta in TRANSFORMATIONS_METADATA}
+
 
 @app.get("/", response_class=HTMLResponse)
 async def root_page() -> HTMLResponse:
@@ -332,6 +334,105 @@ def _serve_static_page(filename: str, *, base_dir: Path) -> HTMLResponse:
     return HTMLResponse(asset_path.read_text())
 
 
+def _get_node_option(element, key: str) -> str | None:
+    raw = element.attrib.get(key)
+    if raw:
+        stripped = raw.strip()
+        if stripped:
+            return stripped
+    child = element.find(key)
+    if child is not None and child.text:
+        text_value = child.text.strip()
+        if text_value:
+            return text_value
+    return None
+
+
+def _get_child_attribute(element, child_tag: str, attribute: str) -> str | None:
+    child = element.find(child_tag)
+    if child is None:
+        return None
+    raw = child.attrib.get(attribute)
+    if raw:
+        stripped = raw.strip()
+        if stripped:
+            return stripped
+    return None
+
+
+def _validate_transformation_node(node, errors: List[str]) -> None:
+    meta = TRANSFORMATION_METADATA_MAP.get(node.tag)
+    if meta is None:
+        errors.append(f"Transformation <{node.tag}> is not recognized. Please choose a supported transformation.")
+        return
+    missing = []
+    for attr in meta.get("attributes", []):
+        if not attr.get("required"):
+            continue
+        value = _get_node_option(node, attr["name"])
+        if not value:
+            missing.append(attr["name"])
+    if missing:
+        errors.append(
+            f"Transformation <{node.tag}> is missing required attribute(s): {', '.join(missing)}"
+        )
+
+
+def _validate_source_node(node, errors: List[str], warnings: List[str]) -> None:
+    node_type = node.tag
+    identifier = node.attrib.get("id") or node.attrib.get("name")
+    if not identifier:
+        errors.append(f"Source <{node_type}> is missing required 'id' attribute")
+    if node_type == "csv":
+        path_value = _get_node_option(node, "path")
+        if not path_value:
+            errors.append(f"Source <csv> {identifier or ''} is missing required 'path' attribute")
+        else:
+            if _is_remote_path(path_value):
+                warnings.append(f"Skipping remote source path validation for {path_value}")
+            else:
+                path_errors, path_warnings = _validate_data_path(path_value)
+                errors.extend(path_errors)
+                warnings.extend(path_warnings)
+        schema_ref_value = _get_node_option(node, "schemaRef")
+        if schema_ref_value:
+            schema_errors = _validate_schema_reference(schema_ref_value)
+            errors.extend(schema_errors)
+    elif node_type == "database":
+        jdbc_url = _get_node_option(node, "jdbcUrl")
+        if not jdbc_url:
+            errors.append("Database source is missing required 'jdbcUrl'")
+        table_value = (
+            _get_node_option(node, "table")
+            or _get_child_attribute(node, "table", "name")
+            or _get_node_option(node, "sql")
+        )
+        if not table_value:
+            errors.append("Database source must provide a <table> or <sql> definition")
+
+
+def _validate_target_node(node, errors: List[str]) -> None:
+    node_type = node.tag
+    dataset_ref = node.attrib.get("source") or node.attrib.get("dataset")
+    if not dataset_ref:
+        errors.append(f"Target <{node_type}> must specify a 'source' dataset")
+    if node_type == "csv":
+        path_value = _get_node_option(node, "path")
+        if not path_value:
+            errors.append("CSV target is missing required 'path' attribute")
+    elif node_type == "hive":
+        table_value = _get_node_option(node, "table")
+        if not table_value:
+            errors.append("Hive target is missing required 'table' attribute")
+    elif node_type == "database":
+        jdbc_url = _get_node_option(node, "jdbcUrl")
+        if not jdbc_url:
+            errors.append("Database target is missing required 'jdbcUrl'")
+        table_value = _get_node_option(node, "table") or _get_child_attribute(node, "table", "name")
+        if not table_value:
+            errors.append("Database target must provide a <table> definition to write into")
+
+
 def _validate_pipeline_file(config_path: Path) -> dict:
     errors: List[str] = []
     warnings: List[str] = []
@@ -390,28 +491,22 @@ def _validate_pipeline_tree(root, *, config_path: Path | None = None, errors: Op
         if not app_name:
             errors.append("<appName> must be provided inside <metadata>")
     sources = root.find("sources")
-    csv_sources = sources.findall("csv") if sources is not None else []
+    source_nodes = list(sources) if sources is not None else []
+    csv_sources = [node for node in source_nodes if node.tag == "csv"]
     if sources is None or not csv_sources:
         errors.append("At least one <csv> source must be defined")
-    for csv_node in csv_sources:
-        source_id = csv_node.get("id") or "<unknown>"
-        path_value = csv_node.get("path")
-        if not path_value:
-            errors.append(f"Source '{source_id}' is missing required 'path' attribute")
-            continue
-        if _is_remote_path(path_value):
-            warnings.append(f"Skipping remote source path validation for {path_value}")
-        else:
-            path_errors, path_warnings = _validate_data_path(path_value)
-            errors.extend(path_errors)
-            warnings.extend(path_warnings)
-        schema_ref = csv_node.find("schemaRef")
-        if schema_ref is not None and schema_ref.text:
-            schema_errors = _validate_schema_reference(schema_ref.text.strip())
-            errors.extend(schema_errors)
+    for source_node in source_nodes:
+        _validate_source_node(source_node, errors, warnings)
+    transformations_parent = root.find("transformations")
+    if transformations_parent is not None:
+        for transformation_node in list(transformations_parent):
+            _validate_transformation_node(transformation_node, errors)
     targets = root.find("targets")
-    if targets is None or not list(targets):
+    target_nodes = list(targets) if targets is not None else []
+    if not target_nodes:
         errors.append("At least one <target> is required")
+    for target_node in target_nodes:
+        _validate_target_node(target_node, errors)
     for lookup_node in root.findall(".//lookup"):
         reference = lookup_node.get("reference")
         if reference:

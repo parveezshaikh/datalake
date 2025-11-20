@@ -729,11 +729,35 @@
       async function loadTransformations() {
         const response = await fetch("/api/transformations");
         const data = await response.json();
-        state.transformations = data;
+        const structuralMeta = [
+          {
+            name: "Source",
+            description:
+              "Define incoming datasets inside <sources>. Each <csv> or <database> entry should include an id and the connection/path details so transformations can reference it.",
+            attributes: [
+              { name: "id", required: true, description: "Unique dataset identifier referenced by transformations." },
+              { name: "path | jdbcUrl", required: true, description: "File path for CSVs or JDBC URL for database sources." },
+              { name: "schemaRef", required: false, description: "Optional schema reference ensuring structure compliance." },
+              { name: "table | sql", required: false, description: "Select a table or provide a SQL query for database sources." },
+            ],
+          },
+          {
+            name: "Target",
+            description:
+              "Declare outputs inside <targets>. Each target points to a dataset produced by transformations and writes it to Hive, CSV, or external databases.",
+            attributes: [
+              { name: "source", required: true, description: "Dataset id produced by transformations to write out." },
+              { name: "path | table", required: true, description: "Destination path for CSV or fully qualified table for Hive/DB targets." },
+              { name: "mode", required: false, description: "Write mode such as overwrite, append, merge, etc." },
+              { name: "schemaRef", required: false, description: "Optional schema reference for enforcing output schema." },
+            ],
+          },
+        ];
+        state.transformations = [...data, ...structuralMeta];
         const select = document.getElementById("transform-select");
         select.innerHTML = "";
         select.appendChild(new Option("Choose a transformation", ""));
-        data.forEach((item) => {
+        state.transformations.forEach((item) => {
           select.appendChild(new Option(item.name, item.name));
         });
       }
