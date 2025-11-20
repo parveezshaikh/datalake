@@ -194,11 +194,14 @@ async def get_pipeline(path: str = Query(..., description="Path relative to conf
 async def save_pipeline(payload: PipelinePayload) -> dict:
     try:
         target = _resolve_config_path(payload.path)
+        validation = _validate_pipeline_contents(payload.content, config_path=target)
+        if not validation["valid"]:
+            raise HTTPException(status_code=400, detail=validation)
         if not target.parent.exists():
             target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(payload.content)
         logger.info("Saved pipeline %s", payload.path)
-        return {"status": "saved", "path": payload.path}
+        return {"status": "saved", "path": payload.path, "warnings": validation.get("warnings", [])}
     except HTTPException:
         raise
     except Exception as exc:
@@ -341,17 +344,37 @@ def _validate_pipeline_file(config_path: Path) -> dict:
         log_exception(logger, "Failed to read pipeline during validation", exc)
         errors.append(f"Unable to read pipeline: {exc}")
         return {"valid": False, "errors": errors, "warnings": warnings}
-    if not contents.strip():
+    result = _validate_pipeline_contents(contents, config_path=config_path)
+    logger.debug(
+        "Validation finished for %s (errors=%d warnings=%d)",
+        config_path,
+        len(result["errors"]),
+        len(result["warnings"]),
+    )
+    return result
+
+
+def _validate_pipeline_contents(contents: str, *, config_path: Path | None = None) -> dict:
+    errors: List[str] = []
+    warnings: List[str] = []
+    stripped = contents.strip()
+    if not stripped:
         errors.append("Pipeline file is empty")
         return {"valid": False, "errors": errors, "warnings": warnings}
     try:
-        root = ET.fromstring(contents)
+        root = ET.fromstring(stripped)
     except ET.ParseError as exc:
         errors.append(f"XML parse error: {exc}")
         return {"valid": False, "errors": errors, "warnings": warnings}
     if root.tag != "pipeline":
         errors.append("Root element must be <pipeline>")
         return {"valid": False, "errors": errors, "warnings": warnings}
+    return _validate_pipeline_tree(root, config_path=config_path, errors=errors, warnings=warnings)
+
+
+def _validate_pipeline_tree(root, *, config_path: Path | None = None, errors: Optional[List[str]] = None, warnings: Optional[List[str]] = None) -> dict:
+    errors = errors or []
+    warnings = warnings or []
     pipeline_id = root.get("id")
     layer = root.get("layer")
     if not pipeline_id:
@@ -395,12 +418,6 @@ def _validate_pipeline_file(config_path: Path) -> dict:
             lookup_path = CONFIG_ROOT / "common" / "lookups" / f"{reference}.json"
             if not lookup_path.exists():
                 warnings.append(f"Lookup reference '{reference}' was not found under common/lookups")
-    logger.debug(
-        "Validation finished for %s (errors=%d warnings=%d)",
-        config_path,
-        len(errors),
-        len(warnings),
-    )
     return {"valid": len(errors) == 0, "errors": errors, "warnings": warnings}
 
 

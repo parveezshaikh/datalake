@@ -204,3 +204,32 @@ Once I get into "Self-Service portal" page, there is no link or button to go bac
 Added reciprocal navigation so users can jump between the portal and dashboard without changing URLs manually. The portal header now matches the dashboard styling with a nav section and active-state link (services/self_service/static/index.html (line 7), services/self_service/static/index.html (line 114)).
 The layout adapts for smaller viewports by letting the nav wrap beneath the title while keeping buttons consistent with the dashboard look.
 No automated tests were necessary for this markup-only change. Please refresh /self to see the new “Dashboard” button; /dashboard already links back to the portal.
+
+## Session 10 - Pipeline validations 
+
+Which all validation you have implemented in self service portal
+
+**Prompt/Output**
+
+The self‑service portal currently validates pipelines when you hit /api/pipeline/validate or before a run via /api/pipeline/run. All checks live in _validate_pipeline_file within services/main.py (lines ~296‑368) plus helper functions just below. Functional validations in place:
+
+File integrity & XML structure (services/main.py (lines 296-318)): verify the target exists, is readable, non-empty, parseable XML, and the root node is <pipeline>.
+
+Required attributes/metadata (services/main.py (lines 319-333)): ensure the <pipeline> element has id and layer attributes, confirm a <metadata> block exists, and that <metadata><appName> is populated.
+
+Source checks (services/main.py (lines 333-352)):
+
+Require at least one <csv> source.
+For each source: enforce a path, distinguish remote URIs vs local ones, validate local/glob paths via _validate_data_path (services/main.py (lines 371-388)), and validate any <schemaRef> file via _validate_schema_reference (services/main.py (lines 391-399)).
+Target presence (services/main.py (lines 354-355)): ensure at least one <target> element is defined.
+
+Lookup references (services/main.py (lines 356-361)): warn when a <lookup reference="..."> points to a JSON that doesn’t exist under config/common/lookups.
+
+Path resolution helpers:
+
+_validate_data_path makes sure referenced data files exist and flags empty files (services/main.py (lines 371-388)).
+_resolve_data_matches handles relative/absolute/globbed paths safely (services/main.py (lines 402-429)).
+_is_remote_path skips validation for s3://, gs://, etc. (services/main.py (lines 432-433)).
+Access control: _resolve_config_path guards against path traversal (services/main.py (lines 465-474)).
+
+Those are the validations actually enforced today. The additional ideas (ID uniqueness, transformation keyword checks, metadata/path alignment, cron/SLA parsing, stricter schema/lookup rules) were proposed but not yet implemented.
