@@ -350,10 +350,8 @@
         <textarea id="pipeline-editor" placeholder="Pipeline XML" disabled></textarea>
         <div class="editor-actions">
           <button class="primary" id="save-button" disabled>Save Changes</button>
-          <button class="secondary" id="validate-button" disabled>Validate Pipeline</button>
           <button class="secondary" id="run-button" disabled>Run/Test Pipeline</button>
           <span class="status" id="save-status"></span>
-          <span class="status" id="validate-status"></span>
           <span class="status" id="run-status"></span>
         </div>
         <div class="validation-panel">
@@ -388,14 +386,21 @@
         transformations: [],
         logs: [],
         validation: null,
+        editorDirty: false,
       };
 
       async function init() {
         await Promise.all([loadTree(), loadTransformations()]);
         document.getElementById("save-button").addEventListener("click", savePipeline);
         document.getElementById("run-button").addEventListener("click", runPipeline);
-        document.getElementById("validate-button").addEventListener("click", () => validatePipeline());
         document.getElementById("new-pipeline-form").addEventListener("submit", createPipeline);
+        document.getElementById("pipeline-editor").addEventListener("input", () => {
+          if (!state.currentPath) {
+            return;
+          }
+          state.editorDirty = true;
+          updateRunButtonState();
+        });
         document.getElementById("transform-select").addEventListener("change", (event) => {
           const meta = state.transformations.find((item) => item.name === event.target.value);
           renderTransformation(meta);
@@ -451,17 +456,17 @@
         editor.disabled = false;
         document.getElementById("active-path").textContent = `Editing: ${payload.path}`;
         document.getElementById("save-button").disabled = false;
-        document.getElementById("validate-button").disabled = false;
-        document.getElementById("run-button").disabled = false;
         document.getElementById("save-status").textContent = "";
         document.getElementById("run-status").textContent = "";
+        state.editorDirty = false;
         renderValidation(null);
+        updateRunButtonState();
         document.querySelectorAll(".file-list button").forEach((el) => el.classList.remove("active"));
         if (button) {
           button.classList.add("active");
         }
         await loadLogsForCurrentPipeline();
-        await validatePipeline({ silent: true });
+        await refreshValidationStatus({ showMessages: true });
       }
 
       async function savePipeline() {
@@ -469,21 +474,54 @@
         if (!state.currentPath || editor.disabled) {
           return;
         }
-        const response = await fetch("/api/pipeline", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path: state.currentPath, content: editor.value }),
-        });
+        const saveButton = document.getElementById("save-button");
         const status = document.getElementById("save-status");
+        saveButton.disabled = true;
+        status.textContent = "Saving...";
+        status.style.color = "#475569";
+        let payload;
+        let response;
+        try {
+          response = await fetch("/api/pipeline", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path: state.currentPath, content: editor.value }),
+          });
+          payload = await response.json();
+        } catch (error) {
+          status.textContent = "Save failed. Please try again.";
+          status.style.color = "#dc2626";
+          saveButton.disabled = false;
+          return;
+        }
         if (response.ok) {
-          status.textContent = "Saved ✔";
-          status.style.color = "#16a34a";
+          state.editorDirty = false;
+          const warnings = payload.warnings || [];
+          renderValidation({ valid: true, errors: [], warnings });
+          if (warnings.length > 0) {
+            status.textContent = "Saved with warnings. Review details below.";
+            status.style.color = "#ca8a04";
+          } else {
+            status.textContent = "Saved ✔ Pipeline looks good.";
+            status.style.color = "#16a34a";
+          }
+          updateRunButtonState();
         } else {
-          const error = await response.json();
-          status.textContent = error.detail || "Save failed";
+          const detail = payload?.detail;
+          if (detail && typeof detail === "object") {
+            renderValidation(detail);
+            const firstError = detail.errors && detail.errors.length ? detail.errors[0] : null;
+            status.textContent = firstError
+              ? `Cannot save: ${firstError}`
+              : "Unable to save. Please fix the highlighted validation issues.";
+          } else {
+            renderValidation(null);
+            status.textContent = detail || "Save failed";
+          }
           status.style.color = "#dc2626";
         }
-        setTimeout(() => (status.textContent = ""), 5000);
+        saveButton.disabled = false;
+        setTimeout(() => (status.textContent = ""), 6000);
       }
 
       async function createPipeline(event) {
@@ -526,35 +564,43 @@
         }
         const runButton = document.getElementById("run-button");
         const runStatus = document.getElementById("run-status");
+        const canRun = Boolean(state.currentPath && !state.editorDirty && state.validation?.valid);
+        if (!canRun) {
+          runStatus.textContent = "Save a valid configuration before running.";
+          runStatus.style.color = "#dc2626";
+          setTimeout(() => (runStatus.textContent = ""), 4000);
+          return;
+        }
         runButton.disabled = true;
         runStatus.textContent = "Running...";
         runStatus.style.color = "#475569";
-        const isValid = await validatePipeline({ silent: true });
-        if (!isValid) {
-          runStatus.textContent = "Validation failed. Fix errors before running.";
-          runStatus.style.color = "#dc2626";
-          runButton.disabled = false;
-          return;
-        }
-        const response = await fetch("/api/pipeline/run", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path: state.currentPath, parameters: {} }),
-        });
-        if (response.ok) {
+        try {
+          const response = await fetch("/api/pipeline/run", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path: state.currentPath, parameters: {} }),
+          });
           const payload = await response.json();
-          runStatus.textContent = `Completed run ${payload.run_id}`;
-          runStatus.style.color = "#16a34a";
-          if (payload.log) {
-            renderLogContent(payload.log);
+          if (response.ok) {
+            runStatus.textContent = `Completed run ${payload.run_id}`;
+            runStatus.style.color = "#16a34a";
+            if (payload.log) {
+              renderLogContent(payload.log);
+            }
+            await loadLogsForCurrentPipeline();
+          } else {
+            if (payload.detail?.errors) {
+              renderValidation(payload.detail);
+            }
+            runStatus.textContent =
+              payload.detail?.message ||
+              (payload.detail?.errors && payload.detail.errors.length
+                ? `Run blocked: ${payload.detail.errors[0]}`
+                : payload.detail || "Run failed");
+            runStatus.style.color = "#dc2626";
           }
-          await loadLogsForCurrentPipeline();
-        } else {
-          const error = await response.json();
-          if (error.detail?.errors) {
-            renderValidation(error.detail);
-          }
-          runStatus.textContent = error.detail?.message || error.detail || "Run failed";
+        } catch (error) {
+          runStatus.textContent = "Run failed. Please try again.";
           runStatus.style.color = "#dc2626";
         }
         runButton.disabled = false;
@@ -614,17 +660,14 @@
         output.textContent = JSON.stringify(log, null, 2);
       }
 
-      async function validatePipeline(options = {}) {
+      async function refreshValidationStatus({ showMessages = true } = {}) {
         if (!state.currentPath) {
-          return false;
+          renderValidation(null);
+          return null;
         }
-        const { silent = false } = options;
-        const button = document.getElementById("validate-button");
-        const status = document.getElementById("validate-status");
-        button.disabled = true;
-        if (!silent) {
-          status.textContent = "Validating...";
-          status.style.color = "#475569";
+        if (showMessages) {
+          const list = document.getElementById("validate-messages");
+          list.innerHTML = "<li>Validating current pipeline...</li>";
         }
         try {
           const response = await fetch("/api/pipeline/validate", {
@@ -634,28 +677,30 @@
           });
           const payload = await response.json();
           renderValidation(payload);
-          if (!silent) {
-            status.textContent = payload.valid ? "Valid ✔" : "Validation failed";
-            status.style.color = payload.valid ? "#16a34a" : "#dc2626";
-            setTimeout(() => (status.textContent = ""), 5000);
-          }
-          return payload.valid;
+          return payload;
         } catch (error) {
-          status.textContent = "Validation failed";
-          status.style.color = "#dc2626";
-          renderValidation({ valid: false, errors: ["Unexpected validation error"], warnings: [] });
-          return false;
-        } finally {
-          button.disabled = false;
+          renderValidation({
+            valid: false,
+            errors: ["Unable to validate the pipeline right now. Please try again."],
+            warnings: [],
+          });
+          return null;
         }
+      }
+
+      function updateRunButtonState() {
+        const runButton = document.getElementById("run-button");
+        const canRun = Boolean(state.currentPath && !state.editorDirty && state.validation?.valid);
+        runButton.disabled = !canRun;
       }
 
       function renderValidation(result) {
         const list = document.getElementById("validate-messages");
         list.innerHTML = "";
         if (!result) {
-          list.innerHTML = "<li>No validation run yet.</li>";
+          list.innerHTML = "<li>Save the pipeline to run validation and view results here.</li>";
           state.validation = null;
+          updateRunButtonState();
           return;
         }
         state.validation = result;
@@ -678,6 +723,7 @@
         if ((!result.errors || result.errors.length === 0) && (!result.warnings || result.warnings.length === 0)) {
           list.innerHTML = "<li>Pipeline passed validation.</li>";
         }
+        updateRunButtonState();
       }
 
       async function loadTransformations() {
